@@ -1,0 +1,8 @@
+# Clés : jamais publiées
+.env
+# Installées par npm install
+node_modules/
+# Journal des questions, réglages, position de l'icône et cache de l'Encyclopédie : propres à chaque PC
+journal/
+memoire/
+*.log

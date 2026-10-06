@@ -1,0 +1,15 @@
+{
+  "name": "copilote-ck3",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "description": "Copilote de Crusader Kings III : icône micro au-dessus du jeu, l'assistant regarde l'écran quand le joueur parle et répond en français ou en anglais.",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "44.5.1"
+  }
+}

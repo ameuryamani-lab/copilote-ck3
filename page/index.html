@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Rien ne sort de 127.0.0.1 : ni script, ni police, ni requête. Les styles en ligne servent aux suggestions Google (srcdoc). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; media-src 'self' blob: data:; frame-src 'self'; object-src 'none'; form-action 'none'">
+<title data-t="nom">Copilote CK3</title>
+<link rel="stylesheet" href="overlay.css">
+<!-- Textes en français ici (langue par défaut) ; textes.js les donne dans les deux langues, overlay.js applique celle choisie. -->
+<script src="textes.js" defer></script>
+<script src="overlay.js" defer></script>
+</head>
+<body data-etat="repos" data-coin="bas-droite">
+<div id="cadre">
+  <section id="panneau" aria-label="Réponse du copilote" data-t-aria="panneau">
+    <div id="contenu">
+      <p id="question"></p>
+      <div id="attente"><span class="roue" aria-hidden="true"></span><span id="attente-texte" data-t="attente">Je regarde ton écran…</span></div>
+      <div id="reponse" aria-live="polite"></div>
+      <div id="erreur" role="alert"></div>
+      <div id="sources"><span class="etiquette" data-t="sources">Sources</span><ul></ul></div>
+      <iframe id="suggestions" title="Suggestions de recherche Google" data-t-title="suggestions" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>
+    </div>
+    <div id="barre">
+      <div id="titre" title="Fais glisser le panneau pour le déplacer : il restera à cet endroit" data-t-title="deplacer">
+        <strong data-t="nom">Copilote CK3</strong>
+        <span id="statut">Prêt</span>
+      </div>
+      <button id="b-repeter" class="outil" type="button" title="Répéter la voix" aria-label="Répéter la voix" data-t-title="repeter" data-t-aria="repeter" disabled>
+        <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.7"/><path d="M20 4v4.7h-4.7"/><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15.3"/><path d="M4 20v-4.7h4.7"/></svg>
+      </button>
+      <button id="b-voix" class="outil" type="button" title="Voix activée (cliquer pour couper)" aria-label="Voix" data-t-aria="voix" aria-pressed="true">
+        <svg class="voix-on" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+        <svg class="voix-off" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="m16 9.5 5 5M21 9.5l-5 5"/></svg>
+      </button>
+      <button id="b-nouvelle" class="outil" type="button" title="Nouvelle question" aria-label="Nouvelle question" data-t-title="nouvelle" data-t-aria="nouvelle">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button id="b-reduire" class="outil" type="button" title="Réduire (la réponse est gardée : clic sur l'icône pour la rouvrir)" aria-label="Réduire en gardant la réponse" data-t-title="reduireInfo" data-t-aria="reduire">
+        <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <button id="b-fermer" class="outil" type="button" title="Fermer" aria-label="Fermer" data-t-title="fermer" data-t-aria="fermer">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+  </section>
+  <button id="micro" type="button" title="Poser une question (Ctrl+Maj+Espace)" aria-label="Poser une question" data-t-title="microInfo" data-t-aria="micro">
+    <span class="niveau" aria-hidden="true"></span>
+    <span class="anneau" aria-hidden="true"></span>
+    <svg class="ico-micro" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11.5" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21M8.5 21h7"/></svg>
+    <svg class="ico-onde" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg>
+  </button>
+</div>
+</body>
+</html>

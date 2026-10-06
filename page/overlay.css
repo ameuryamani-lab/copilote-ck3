@@ -1,0 +1,143 @@
+/* Copilote CK3 : icône micro et panneau de réponse au-dessus du jeu, dans la palette bleue de Jarvis (thème « jarvis » des pages).
+   Polices Exo 2 et Rajdhani copiées de public/media/polices (licence SIL OFL 1.1 : copie et usage libres).
+   Au repos, rien ne bouge : une animation permanente forcerait Windows à recomposer l'icône à chaque image du jeu.
+   Le halo du bouton tient dans la marge de 4 px de la fenêtre de 72 px : plus large, il serait coupé net au bord. */
+@font-face { font-family: 'Exo 2'; font-style: normal; font-weight: 400 600; font-display: swap; src: url('polices/Exo2.woff2') format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-style: normal; font-weight: 600; font-display: swap; src: url('polices/Rajdhani-600.woff2') format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-style: normal; font-weight: 700; font-display: swap; src: url('polices/Rajdhani-700.woff2') format('woff2'); }
+
+:root {
+  color-scheme: dark;
+  --accent: #3cc4ff; --accent-rgb: 60, 196, 255; --accent-clair: #bfe9ff;
+  --texte: #e2f3ff; --texte-2: #a9c8de; --texte-3: #7f9fba;
+  --ligne: #1d5f93; --ligne-douce: #123e63;
+  --rouge: #ff5468; --rouge-rgb: 255, 84, 104; --alerte: #ffc062;
+  --titre: 'Rajdhani', 'Segoe UI', sans-serif; --corps: 'Exo 2', 'Segoe UI', sans-serif;
+  --micro: 64px; --case: 72px; --marge: 4px;
+}
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+body { font-family: var(--corps); color: var(--texte); -webkit-user-select: none; user-select: none; cursor: default; }
+button { font: inherit; color: inherit; }
+svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+#cadre { position: fixed; inset: 0; }
+
+/* ---------- Bouton micro (64 px, dans une case de 72 px au coin du panneau) ---------- */
+#micro { position: absolute; width: var(--micro); height: var(--micro); right: var(--marge); bottom: var(--marge); z-index: 3;
+  border-radius: 50%; padding: 0; cursor: pointer; display: grid; place-items: center; touch-action: none;
+  background: radial-gradient(circle at 50% 32%, rgba(22, 78, 128, .96), rgba(5, 17, 33, .94) 68%);
+  border: 1.5px solid rgba(var(--accent-rgb), .78);
+  box-shadow: 0 0 5px rgba(0, 150, 255, .55), inset 0 0 12px rgba(0, 170, 255, .28);
+  transition: border-color .2s, box-shadow .2s, background .2s; }
+#micro:hover { border-color: var(--accent-clair); box-shadow: 0 0 6px 1px rgba(0, 170, 255, .62), inset 0 0 14px rgba(0, 170, 255, .4); }
+#micro:focus-visible { outline: 2px solid var(--accent-clair); outline-offset: 2px; }
+#micro svg { width: 27px; height: 27px; position: relative; z-index: 2; color: var(--texte); filter: drop-shadow(0 0 3px rgba(var(--accent-rgb), .7)); }
+#micro .ico-onde { display: none; }
+#micro .niveau { position: absolute; inset: 9px; border-radius: 50%; background: rgba(var(--rouge-rgb), .42);
+  transform: scale(calc(.35 + var(--niveau, 0) * .65)); opacity: 0; transition: transform 70ms linear, opacity .2s; }
+#micro .anneau { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid transparent; pointer-events: none; }
+
+/* Écoute : rouge, pulsation, niveau du micro en direct */
+body[data-etat="ecoute"] #micro { border-color: var(--rouge); background: radial-gradient(circle at 50% 32%, rgba(120, 24, 40, .96), rgba(33, 6, 12, .94) 68%);
+  box-shadow: 0 0 6px 1px rgba(var(--rouge-rgb), .6), inset 0 0 12px rgba(var(--rouge-rgb), .35); }
+body[data-etat="ecoute"] #micro .niveau { opacity: 1; }
+body[data-etat="ecoute"] #micro .anneau { border-color: rgba(var(--rouge-rgb), .7); animation: pulsation 1.3s ease-out infinite; }
+@keyframes pulsation { from { transform: scale(.94); opacity: 1; } to { transform: scale(1.04); opacity: 0; } }
+
+/* Réflexion : arc qui tourne autour du bouton */
+body[data-etat="reflexion"] #micro .anneau { border-top-color: var(--accent); border-right-color: rgba(var(--accent-rgb), .35); animation: tourne .9s linear infinite; }
+@keyframes tourne { to { transform: rotate(360deg); } }
+
+/* Réponse gardée (panneau réduit) : un point bleu sur l'icône rappelle qu'un clic la rouvre */
+body.garde:not(.agrandi) #micro::after { content: ''; position: absolute; top: 4px; right: 4px; width: 11px; height: 11px; border-radius: 50%; z-index: 3;
+  background: var(--accent); border: 1.5px solid rgba(5, 17, 33, .9); box-shadow: 0 0 6px rgba(var(--accent-rgb), .8); }
+
+/* Voix en cours : l'icône devient une onde */
+body.parle #micro .ico-micro { display: none; }
+body.parle #micro .ico-onde { display: block; animation: onde 1.1s ease-in-out infinite alternate; }
+@keyframes onde { from { transform: scaleY(.7); } to { transform: scaleY(1.05); } }
+
+/* ---------- Panneau (440 x 420), le micro reste au coin le plus proche de sa place à l'écran ---------- */
+#panneau { position: absolute; inset: 0; display: none; flex-direction: column; overflow: hidden;
+  background: linear-gradient(180deg, rgba(10, 39, 66, .95), rgba(5, 16, 31, .96));
+  border: 1px solid var(--ligne); box-shadow: inset 0 0 0 1px rgba(0, 170, 255, .07), inset 0 0 30px rgba(0, 120, 255, .08); }
+body.agrandi #panneau { display: flex; cursor: move; touch-action: none; }
+#panneau button, #panneau a, #panneau iframe { cursor: pointer; }
+#panneau::before, #panneau::after { content: ''; position: absolute; width: 14px; height: 14px; border: 2px solid var(--accent); pointer-events: none; z-index: 2; }
+#panneau::before { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+#panneau::after { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+/* Les coins lumineux restent du côté opposé au micro */
+body[data-coin$="droite"] #panneau::after { right: auto; left: 0; border-left: 2px solid var(--accent); border-right: 0; }
+body[data-coin$="gauche"] #panneau::before { left: auto; right: 0; border-left: 0; border-right: 2px solid var(--accent); }
+
+#contenu { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 10px; scrollbar-width: thin; scrollbar-color: rgba(0, 170, 255, .35) transparent; }
+#barre { flex: none; height: var(--case); display: flex; align-items: center; gap: 6px; padding: 0 calc(var(--case) + 8px) 0 14px;
+  border-top: 1px solid var(--ligne-douce); background: linear-gradient(180deg, rgba(3, 12, 24, .35), rgba(3, 12, 24, .7)); }
+#titre { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; cursor: move; touch-action: none; }
+#titre strong { font-family: var(--titre); font-weight: 700; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent-clair);
+  text-shadow: 0 0 10px rgba(var(--accent-rgb), .35); }
+#statut { font-size: 11.5px; color: var(--texte-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.outil { width: 32px; height: 32px; flex: none; padding: 0; display: grid; place-items: center; cursor: pointer; border-radius: 3px;
+  background: rgba(0, 170, 255, .07); border: 1px solid rgba(var(--accent-rgb), .32); color: var(--texte-2); transition: background .15s, border-color .15s, color .15s; }
+.outil svg { width: 18px; height: 18px; }
+.outil:hover:not(:disabled) { background: rgba(0, 170, 255, .2); border-color: rgba(var(--accent-rgb), .8); color: var(--texte); }
+.outil:disabled { opacity: .35; cursor: default; }
+#b-voix .voix-off { display: none; }
+#b-voix[aria-pressed="false"] .voix-on { display: none; }
+#b-voix[aria-pressed="false"] .voix-off { display: block; }
+#b-voix[aria-pressed="false"] { color: var(--alerte); border-color: rgba(255, 192, 98, .45); }
+
+/* Coins : en haut, la barre passe en haut ; à gauche, le micro passe à gauche */
+body[data-coin^="haut"] #panneau { flex-direction: column-reverse; }
+body[data-coin^="haut"] #barre { border-top: 0; border-bottom: 1px solid var(--ligne-douce); }
+body[data-coin^="haut"] #micro { bottom: auto; top: var(--marge); }
+body[data-coin$="gauche"] #micro { right: auto; left: var(--marge); }
+body[data-coin$="gauche"] #barre { padding: 0 14px 0 calc(var(--case) + 8px); }
+
+/* ---------- Contenu de la réponse ---------- */
+#question { margin: 0 0 9px; font-size: 12.5px; font-style: italic; color: var(--texte-3); line-height: 1.35; }
+#question:empty { display: none; }
+#question::before { content: '« '; } #question::after { content: ' »'; }
+html[lang="en"] #question::before { content: '“'; } html[lang="en"] #question::after { content: '”'; }   /* guillemets anglais */
+#attente { display: none; align-items: center; gap: 10px; padding: 6px 0 10px; font-size: 13.5px; color: var(--texte-2); }
+body[data-etat="reflexion"]:not(.a-texte) #attente, body[data-etat="ecoute"] #attente { display: flex; }
+body[data-etat="ecoute"] .roue { border-color: rgba(var(--rouge-rgb), .25); border-top-color: var(--rouge); }
+.roue { width: 15px; height: 15px; flex: none; border-radius: 50%; border: 2px solid rgba(var(--accent-rgb), .22); border-top-color: var(--accent); animation: tourne .8s linear infinite; }
+#reponse { font-size: 14px; line-height: 1.46; color: var(--texte); }
+#reponse p { margin: 0 0 7px; }
+#reponse ol { list-style: none; margin: 2px 0 8px; padding: 0; }
+#reponse li { position: relative; margin: 0 0 6px; padding-left: 29px; }
+#reponse li::before { content: attr(data-n); position: absolute; left: 0; top: 1px; width: 19px; height: 19px; display: grid; place-items: center;
+  font-family: var(--titre); font-weight: 700; font-size: 13px; color: var(--accent); border: 1px solid rgba(var(--accent-rgb), .6); background: rgba(0, 170, 255, .1); }
+#reponse strong { font-weight: 600; color: #fff; background: rgba(0, 170, 255, .14); box-shadow: inset 0 -1px 0 rgba(var(--accent-rgb), .55); padding: 0 3px; border-radius: 2px; }
+body[data-etat="reponse"]:not(.fini) #reponse > p:last-child::after, body[data-etat="reponse"]:not(.fini) #reponse > ol:last-child > li:last-child::after {
+  content: ''; display: inline-block; width: 7px; height: 13px; margin-left: 3px; vertical-align: -1px; background: var(--accent); animation: clignote .8s steps(2) infinite; }
+@keyframes clignote { 50% { opacity: 0; } }
+#erreur { margin: 6px 0 8px; padding: 8px 10px; font-size: 13.5px; line-height: 1.4; color: #ffdcaa; background: rgba(255, 192, 98, .08); border-left: 3px solid var(--alerte); }
+#erreur:empty { display: none; }
+
+#sources { display: none; flex-wrap: wrap; align-items: center; gap: 5px 6px; margin: 8px 0 4px; padding-top: 8px; border-top: 1px dashed var(--ligne-douce); font-size: 11.5px; }
+body.a-sources #sources { display: flex; }
+#sources .etiquette { font-family: var(--titre); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--texte-3); font-size: 11.5px; margin-right: 2px; }
+#sources ul { display: contents; list-style: none; }
+#sources li { display: contents; }
+#sources a { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); text-decoration: none;
+  padding: 2px 8px; border: 1px solid rgba(var(--accent-rgb), .3); border-radius: 10px; background: rgba(0, 170, 255, .06); cursor: pointer; }
+#sources a:hover { border-color: var(--accent); color: var(--accent-clair); }
+#suggestions { display: none; width: 100%; height: 50px; border: 0; margin: 2px 0 0; background: transparent; color-scheme: dark; }
+body.a-suggestions #suggestions { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-etat="ecoute"] #micro .anneau, body.parle #micro .ico-onde { animation: none; }
+}
+
+/* ---------- Démonstration dans un navigateur (?demo=1) : un faux décor et le contour de la fenêtre ---------- */
+html.demo body { background:
+  radial-gradient(ellipse at 30% 40%, rgba(150, 120, 60, .55), transparent 45%),
+  radial-gradient(ellipse at 70% 65%, rgba(70, 110, 60, .6), transparent 50%),
+  radial-gradient(ellipse at 85% 20%, rgba(40, 70, 110, .7), transparent 40%),
+  repeating-linear-gradient(35deg, rgba(0, 0, 0, .06) 0 2px, transparent 2px 14px), #3d4a33; }
+html.demo #cadre { inset: auto; width: var(--case); height: var(--case); right: 60px; top: calc(55vh - 36px); outline: 1px dashed rgba(255, 255, 255, .22); }
+html.demo body.agrandi #cadre { width: 440px; height: 420px; top: max(0px, calc(55vh + 36px - 420px)); right: max(0px, min(60px, 100vw - 440px)); }
+html.demo body[data-coin^="haut"] #cadre { top: min(90px, max(0px, 100vh - 420px)); }
+html.demo body[data-coin$="gauche"] #cadre { right: auto; left: max(0px, min(60px, 100vw - 440px)); }
