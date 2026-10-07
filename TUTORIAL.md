@@ -63,7 +63,7 @@ The installer goes through 5 steps:
 
 1. **Windows and folder.** It checks that you have Windows 10 or 11 and that the folder is complete.
 2. **Node.js.** If Node.js is missing or too old, it explains what to do and offers to open [nodejs.org](https://nodejs.org/) in your browser. Download the version marked **LTS**, install it with the default options (you don't need "Tools for Native Modules"), then double-click the installer again. The installer never downloads or runs a program by itself.
-3. **Electron.** It installs the app's engine, Electron (about 150 MB). This takes from a few seconds to a few minutes, depending on your connection.
+3. **Electron.** It installs the app's engine, Electron (about 150 MB). This takes from a few seconds to a few minutes, depending on your connection. Where it comes from: the small packages listed in `package.json` come from the official npm registry (registry.npmjs.org), and Electron itself from the official Electron releases on GitHub (github.com/electron/electron); the download is checked against its published SHA-256 fingerprint. The installer downloads nothing else and never runs a program from the internet.
 4. **Your Gemini key.** It asks you to paste your key: press **Ctrl+V** (or right-click), then **Enter**. The key shows as stars (`*****`): that is normal. The installer checks the key with Google, then saves it in a file named `.env`, in the copilot's folder, on your PC only. No key yet? Press Enter to skip, and run the installer again later.
 5. **Shortcut and microphone.** It creates a **CK3 Copilot** shortcut on your desktop and checks that Windows lets desktop apps use the microphone.
 
@@ -320,7 +320,7 @@ L'installation passe par 5 étapes :
 
 1. **Windows et dossier.** Elle vérifie que tu as Windows 10 ou 11 et que le dossier est complet.
 2. **Node.js.** S'il manque ou s'il est trop ancien, elle t'explique quoi faire et te propose d'ouvrir [nodejs.org](https://nodejs.org/) dans ton navigateur. Télécharge la version marquée **LTS**, installe-la avec les options par défaut (« Tools for Native Modules » est inutile), puis double-clique de nouveau sur l'installation. Elle ne télécharge et ne lance jamais de programme d'elle-même.
-3. **Electron.** Elle installe le moteur de l'appli, Electron (environ 150 Mo). Cela prend de quelques secondes à quelques minutes selon ta connexion.
+3. **Electron.** Elle installe le moteur de l'appli, Electron (environ 150 Mo). Cela prend de quelques secondes à quelques minutes selon ta connexion. D'où ça vient : les petits paquets listés dans `package.json` viennent du registre officiel npm (registry.npmjs.org), et Electron lui-même des versions officielles d'Electron sur GitHub (github.com/electron/electron) ; le téléchargement est vérifié avec son empreinte SHA-256 publiée. L'installation ne télécharge rien d'autre et ne lance jamais un programme venu d'Internet.
 4. **Ta clé Gemini.** Elle te demande de coller ta clé : **Ctrl+V** (ou clic droit), puis **Entrée**. La clé s'affiche en étoiles (`*****`) : c'est normal. L'installation vérifie la clé auprès de Google, puis l'enregistre dans un fichier nommé `.env`, dans le dossier du copilote, sur ton PC seulement. Pas encore de clé ? Appuie sur Entrée pour passer, et relance l'installation plus tard.
 5. **Raccourci et micro.** Elle crée un raccourci **CK3 Copilot** sur ton Bureau et vérifie que Windows laisse les applis de bureau utiliser le micro.
 
