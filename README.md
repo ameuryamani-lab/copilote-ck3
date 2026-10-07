@@ -36,7 +36,7 @@ No more taking photos of your screen with your phone to ask an AI for help.
 You need:
 
 - Crusader Kings III on Steam, in English;
-- [Node.js](https://nodejs.org) 22 or newer (only to install);
+- [Node.js](https://nodejs.org) 22.12 or newer, only to install (the installer tells you if it is missing);
 - a Google Gemini API key, from [Google AI Studio](https://aistudio.google.com/apikey). Setting up billing is recommended: on Google's free tier, what you send may be used to improve Google's products, and Google Search checks are not available (details in the [guide](TUTORIAL.md#2-get-a-google-gemini-key)). An OpenAI key is optional: it is used as a fallback when Google refuses (no credit left, outage).
 
 Steps:
