@@ -6,14 +6,14 @@ This guide is for players, not developers. You will not need to type any command
 
 <img src="docs/copilot-in-game-en.png" width="1100" alt="The CK3 Copilot answer panel next to the Tips window in Crusader Kings III">
 
-*A real answer from the copilot for this game screen (CK3 1.20, English). The panel was dragged to the right by the player; by default it opens to the left of the game's main windows.*
+*A real answer from the copilot for this game screen (CK3 1.20, English), with the panel shown moved to the right. By default it opens to the left of the game's main windows; you can drag it anywhere.*
 
 **Contents:** [1. What you need](#1-what-you-need) · [2. Get a Google Gemini key](#2-get-a-google-gemini-key) · [3. Download the copilot](#3-download-the-copilot) · [4. Run the installer](#4-run-the-installer) · [5. Start CK3 and the copilot](#5-start-ck3-and-the-copilot) · [6. Your first question](#6-your-first-question) · [7. Show it things while you talk](#7-show-it-things-while-you-talk) · [8. Language, voice and other settings](#8-language-voice-and-other-settings) · [9. What it costs](#9-what-it-costs) · [10. Privacy](#10-privacy) · [11. Troubleshooting](#11-troubleshooting) · [12. Update](#12-update) · [13. Uninstall](#13-uninstall)
 
 ## 1. What you need
 
 - A PC with **Windows 10 or 11** (64-bit) and a **microphone** (a headset works best).
-- **Crusader Kings III** on Steam, with the game language set to **English**. The copilot was tested with CK3 1.20, in Fullscreen mode at 1920 × 1080, on a single screen.
+- **Crusader Kings III** on Steam, with the game language set to **English** (in the game: **Settings**, **Language** section, choose English). The copilot quotes the game's buttons in English, so they must match your screen. It was tested with CK3 1.20, in Fullscreen mode at 1920 × 1080, on a single screen.
 - A **Google account**. Google requires you to be 18 or older to use its Gemini API.
 - An Internet connection, and about **600 MB** of free disk space.
 - **Node.js**, a free program that is only used during installation. If you don't have it, the installer tells you how to get it.
@@ -25,13 +25,13 @@ The copilot uses Google's AI (Gemini) to understand your question, look at the g
 1. Go to **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)** and sign in with your Google account.
 2. The first time, accept the terms. Google then creates a project for you, and often a first key.
 3. If no key is listed, click **Create API key**.
-4. Copy the key (copy button next to it). Keep it somewhere safe for step 4, and treat it like a password: anyone who has it can spend your credit.
-5. **Turn on billing (recommended).** On the same page, in the **Billing Tier** column, click **Set up billing**, choose your country and a payment method. New accounts prepay at least **$5**.
+4. Copy the key (copy button next to it). Keep it somewhere safe for [section 4](#4-run-the-installer) (the installer), and treat it like a password: anyone who has it can spend your credit.
+5. **Turn on billing (recommended).** Click **Set up billing** (in the **Billing Tier** column, on the **API keys** or **Projects** page), then choose your country and a payment method. New accounts usually prepay at least **$5**.
 
 **Why billing is recommended.** Google also offers a free tier, but:
 
 - On the free tier, Google says it may use what you send to improve its products, and human reviewers may read it. For the copilot, that means your spoken questions and the pictures of your game. (Google's terms say that in the European Economic Area, Switzerland and the UK, the paid-tier data rules apply even to free use.)
-- The copilot asks Google Search to check facts with every answer, and Google lists Search as **not available on the free tier** for its Gemini 3 models. The copilot has not been tested with a free key: expect some answers to fail, or to come without the online check.
+- The copilot asks Google Search to check facts with every answer, and Google lists Search as **not available on the free tier** for its Gemini 3 models. The copilot has not been tested with a free key: **it may not answer at all** ("Google is not responding" or "Google credit is used up"), even if the installer says "Google accepts this key" (that check only proves the key exists, not that it can use Search).
 - The free tier has daily limits that a long game session can reach.
 
 On the paid tier, Google does not use your prompts or answers to improve its products. A $5 prepayment is about 500 questions at today's prices (see [What it costs](#9-what-it-costs)).
@@ -41,14 +41,17 @@ On the paid tier, Google does not use your prompts or answers to improve its pro
 ## 3. Download the copilot
 
 1. On the [copilot's GitHub page](https://github.com/ameuryamani-lab/copilote-ck3), click the green **Code** button, then **Download ZIP**.
-2. Open your Downloads folder, **right-click** the ZIP file, then **Extract All...**.
-3. Choose a folder you will keep, for example `C:\Games\CK3 Copilot`. Avoid the Downloads folder (easy to clean up by mistake) and folders synced by OneDrive (the copilot takes about 400 MB).
+2. Open your Downloads folder, **right-click** the ZIP file (`copilote-ck3-main.zip`), then **Extract All...**.
+3. Choose a folder you will keep, for example `C:\Games` (type it in the box, or click **Browse...**), then click **Extract**. Avoid the Downloads folder (easy to clean up by mistake) and folders synced by OneDrive (the copilot takes about 400 MB).
+4. Windows puts a folder named **`copilote-ck3-main`** in the folder you chose, for example `C:\Games\copilote-ck3-main`. **This is the copilot's folder:** everything this guide calls "the copilot's folder" is there.
 
 Do not run anything from inside the ZIP: always extract it first.
 
 ## 4. Run the installer
 
-Open the extracted folder and **double-click `Installer-Copilote-CK3.cmd`**. A black window opens; every message is shown in English, then in French.
+Open the copilot's folder (`copilote-ck3-main`) and **double-click `Installer-Copilote-CK3.cmd`**. A black window opens; every message is shown in English, then in French.
+
+> **Two files are called "installer".** Windows often hides the end of file names (`.cmd`, `.ps1`), so you may see `Installer-Copilote-CK3` (type "Windows Command Script") next to a file named just `installer`. Double-click **`Installer-Copilote-CK3`**. If Notepad (or a window asking which app to use) opens instead, you opened `installer`: close it and double-click the other one.
 
 > **Windows may warn you,** because the file comes from the Internet and is not signed by a company:
 > - "Windows protected your PC": click **More info**, then **Run anyway**.
@@ -105,7 +108,7 @@ The copilot also puts a small icon next to the clock (it may be hidden behind th
 2. Ask your question out loud, for example "What should I do now?" or "How do I get a hook on this vassal?". When you stop talking, it stops listening by itself.
 3. The panel opens and says what the copilot is doing ("Looking at your screen…", "Thinking…"), with a turning arc around the icon. A few seconds later, the answer appears and is read aloud.
 
-**Walkie-talkie mode:** hold **Ctrl+Shift+Space** (more than half a second) while you talk, and release the keys when you are done.
+**Walkie-talkie mode:** keep **Ctrl+Shift+Space** held down while you talk, and release the keys when you are done. (A quick press, shorter than about half a second, starts the normal mode instead.)
 
 Answers are short: one sentence, then 2 to 4 steps that say where to click, 70 words at most. Button names are quoted in English, exactly as on screen. The copilot remembers the last 4 questions for 10 minutes, so you can follow up with "and then?".
 
@@ -123,13 +126,13 @@ The copilot never presses a key or clicks in the game: it only advises. The game
 
 ## 7. Show it things while you talk
 
-The copilot does not only look at the screen when you press the keys. **During your whole question, it keeps watching the CK3 window** (a light look about once per second), then sends up to 4 views with your question, plus a zoom around the mouse cursor to read the tooltip you are hovering.
+The copilot does not only look at the screen when you press the keys. **During your whole question, it keeps watching the CK3 window** (a light look about once per second), then sends up to 4 views with your question, with close-ups around the mouse cursor to read the tooltip you are hovering.
 
 So you can talk to it as you would to a friend sitting next to you: "Look at this county, is it worth taking?" while you hover the county, or open a window while you ask about it.
 
 **Tip:** stop the mouse for half a second on what you want it to see. CK3 opens its tooltips when the mouse rests, and the copilot prefers the moments when the mouse was still.
 
-Only the CK3 window is captured: never your desktop or other programs, and never windows on top of the game (including the copilot itself). The views stay in memory and are dropped after the question; only the last image sent is kept on disk (see [Privacy](#10-privacy)).
+Only the CK3 window is captured: never your desktop or other programs, and never windows on top of the game (including the copilot itself). The views stay in memory and are dropped after the question; only the main image of the last question is kept on disk (see [Privacy](#10-privacy)).
 
 ## 8. Language, voice and other settings
 
@@ -141,11 +144,13 @@ Right-click the copilot's icon next to the clock:
 - **Langue / Language:** Français or English. By default the copilot follows your Windows language. Changing the language also clears the conversation.
 - **Quit.**
 
-Two optional settings go in the `.env` file, in the copilot's folder. To edit it: right-click `.env` > **Open with** > **Notepad**, change the line, save.
+Three optional settings go in the `.env` file, in the copilot's folder. To edit it: right-click `.env` > **Open with** > **Notepad**, change the line, then **File > Save**.
 
-- `COPILOTE_LANGUE=en` or `fr`: the answer language until you pick one in the menu.
-- `COPILOTE_PRENOM=YourFirstName`: the copilot calls you by your first name (otherwise it talks to "the player").
 - `OPENAI_API_KEY=`: paste an OpenAI key after the `=` sign if you want the backup.
+- `COPILOTE_LANGUE=en` or `fr`: the answer language until you pick one in the menu.
+- `COPILOTE_PRENOM=YourFirstName`: the copilot calls you by your first name (otherwise it talks to "the player"). Your first name is then sent to Google with each question.
+
+In the file, the `COPILOTE_LANGUE` and `COPILOTE_PRENOM` lines start with `#`, which switches them off. To use one, **delete the `#` and the space after it**, then write your value after the `=` sign. For example, `# COPILOTE_PRENOM=` becomes `COPILOTE_PRENOM=Alex`. Lines that start with `#` are only notes: the copilot ignores them.
 
 Restart the copilot (menu > **Quit**, then the desktop shortcut) after changing `.env`.
 
@@ -166,10 +171,10 @@ Prices checked on 7 October 2026; Google may change them.
 
 - **Microphone:** it opens only when you press the keys or click the icon, and the icon stays red while it listens. Your voice is not saved on your PC.
 - **Screen:** only the CK3 window is captured, only during a question (40 seconds at most), and the views stay in memory.
-- **What is sent, and to whom:** your recorded question, up to 4 views of the CK3 window and the last few exchanges go to Google (or to OpenAI if you added a backup key and Google fails). Nothing is sent to the author of the copilot.
+- **What is sent, and to whom:** your recorded question, up to 4 views of the CK3 window (with close-ups around the mouse cursor), the last few exchanges and, if you set one, your first name go to Google (or to OpenAI if you added a backup key and Google fails). Nothing is sent to the author of the copilot.
 - **What stays on your PC**, in the copilot's folder:
   - `.env`: your key and settings;
-  - `memoire\copilote-ck3\`: settings, icon position, a copy of the game's Encyclopedia texts, and `derniere-capture.jpg`, the last image sent (replaced at every question, kept to help with troubleshooting);
+  - `memoire\copilote-ck3\`: settings, icon position, a copy of the game's Encyclopedia texts, and `derniere-capture.jpg`, the main image of the last question (replaced at every question, kept to help with troubleshooting);
   - `journal\copilote-ck3\`: your questions, the answers and their cost, and the app's log.
 - **Network:** the copilot's small local server only listens on your own PC (127.0.0.1): nobody on your network can reach it.
 - **Google's free tier:** see [section 2](#2-get-a-google-gemini-key).
@@ -177,16 +182,16 @@ Prices checked on 7 October 2026; Google may change them.
 ## 11. Troubleshooting
 
 **The icon does not show over the game.**
-The icon only shows while CK3 is the window in front. If you still don't see it, switch CK3 to window mode: **Settings**, **Display Mode**, **Window**. Clicking the copilot's icon next to the clock also shows it for 15 seconds, and **Reset the icon and panel position** brings it back to its place.
+The icon only shows while CK3 is the window in front. If you still don't see it, switch CK3 to window mode: press **Esc**, then **Settings** > **Graphics** > **Display Mode** > **Window**. Clicking the copilot's icon next to the clock also shows it for 15 seconds, and **Reset the icon and panel position** brings it back to its place.
 
 **Ctrl+Shift+Space does nothing.**
-Click the microphone icon instead. If the status line says "Shortcut unavailable: click the icon", another program uses this shortcut. "(shortcut toggles only)" means the shortcut works, but not as a walkie-talkie.
+The shortcut only works while CK3 is the window in front: click in the game first. Otherwise, click the microphone icon instead. If the status line says "Shortcut unavailable: click the icon", another program uses this shortcut. "(shortcut toggles only)" means the shortcut works, but not as a walkie-talkie.
 
 **"The microphone is blocked".**
-Open Windows **Settings > Privacy & security > Microphone**, and turn on **Microphone access** and **Let desktop apps access your microphone**. For "No microphone found", plug in your headset. For "The microphone is not responding", check that no other program uses it, and that the right microphone is selected in **Settings > System > Sound > Input**.
+Open Windows **Settings > Privacy & security > Microphone**, and turn on **Microphone access** and **Let desktop apps access your microphone**. On Windows 10, similar switches are under **Settings > Privacy > Microphone**. For "No microphone found", plug in your headset. For "The microphone is not responding", check that no other program uses it, and that the right microphone is selected in **Settings > System > Sound > Input**.
 
-**"Electron not found" when you start the copilot.**
-The installation is not finished: double-click `Installer-Copilote-CK3.cmd` again.
+**"Electron not found" when you start the copilot, or Windows says "Problem with Shortcut".**
+The installation is not finished, or the copilot's folder was moved. Double-click `Installer-Copilote-CK3.cmd` again: it finishes the installation and recreates the desktop shortcut. If the black window also shows `npm` commands, ignore them: the installer does that for you.
 
 **Windows refuses to open the installer.**
 Right-click the ZIP file you downloaded > **Properties** > tick **Unblock** at the bottom > **OK**, then extract it again. If the installer says you opened it "from inside the ZIP", extract the ZIP first (see [section 3](#3-download-the-copilot)).
@@ -204,6 +209,9 @@ The code is open: you can read `aide-windows.ps1`, or ask someone you trust to c
 - "Google credit is used up": add credit in Google AI Studio (Billing).
 - "Google is not responding": check your Internet connection, and check that your key still exists in AI Studio. On a free key, see [section 2](#2-get-a-google-gemini-key).
 
+**Wrong key saved, or a new key?**
+The installer keeps a key that is already saved and does not ask again. Open `.env` with Notepad (see [section 8](#8-language-voice-and-other-settings)), replace the text after `GEMINI_API_KEY=` with your new key (no space, no quotes), save, then restart the copilot.
+
 **"CK3 isn't running" while the game is open.**
 CK3 must be running and not minimized. Click in the game, then ask again.
 
@@ -216,13 +224,13 @@ The copilot is in beta and can make mistakes. You can report it in the [Issues](
 ## 12. Update
 
 1. Quit the copilot (right-click its icon next to the clock > **Quit**).
-2. Download the new ZIP and extract it **into the same folder**, replacing the files. Your `.env`, settings and logs are not in the ZIP, so they are kept.
+2. Download the new ZIP and extract it **to the same place as the first time** (for example `C:\Games`), so that it lands in the same `copilote-ck3-main` folder. When Windows asks, choose **Replace the files in the destination**. Your `.env`, settings and logs are not in the ZIP, so they are kept.
 3. Double-click `Installer-Copilote-CK3.cmd` again: it updates Electron if needed.
 
 ## 13. Uninstall
 
 1. Quit the copilot (right-click its icon next to the clock > **Quit**).
-2. Delete the copilot's folder. This also deletes your key, settings and logs.
+2. Delete the copilot's folder (`copilote-ck3-main`). This also deletes your key, settings and logs.
 3. Delete the **CK3 Copilot** shortcut from your desktop.
 4. Optional: delete the folders `%APPDATA%\copilote-ck3` (Electron's data for the copilot) and `%LOCALAPPDATA%\electron\Cache` (the Electron download, about 150 MB; other Electron-based programs you install yourself may use it too). Type these names in the File Explorer address bar to open them.
 5. Optional: uninstall Node.js (**Settings > Apps**) if you don't use it for anything else, and delete your key in Google AI Studio if you won't use it anymore.
@@ -235,14 +243,14 @@ Ce guide s'adresse aux joueurs, pas aux développeurs. Tu n'auras aucune command
 
 <img src="docs/copilot-in-game-fr.png" width="1100" alt="Le panneau de réponse du Copilote CK3 à côté de la fenêtre Tips de Crusader Kings III">
 
-*Une vraie réponse du copilote pour cet écran de jeu (CK3 1.20, en anglais). Le joueur a fait glisser le panneau à droite ; par défaut, il s'ouvre à gauche des fenêtres principales du jeu.*
+*Une vraie réponse du copilote pour cet écran de jeu (CK3 1.20, en anglais), avec le panneau montré déplacé à droite. Par défaut, il s'ouvre à gauche des fenêtres principales du jeu ; tu peux le faire glisser où tu veux.*
 
 **Sommaire :** [1. Ce qu'il te faut](#1-ce-quil-te-faut) · [2. Obtenir une clé Google Gemini](#2-obtenir-une-clé-google-gemini) · [3. Télécharger le copilote](#3-télécharger-le-copilote) · [4. Lancer l'installation](#4-lancer-linstallation) · [5. Lancer CK3 et le copilote](#5-lancer-ck3-et-le-copilote) · [6. Ta première question](#6-ta-première-question) · [7. Lui montrer des choses en parlant](#7-lui-montrer-des-choses-en-parlant) · [8. Langue, voix et autres réglages](#8-langue-voix-et-autres-réglages) · [9. Ce que ça coûte](#9-ce-que-ça-coûte) · [10. Vie privée](#10-vie-privée) · [11. En cas de problème](#11-en-cas-de-problème) · [12. Mettre à jour](#12-mettre-à-jour) · [13. Désinstaller](#13-désinstaller)
 
 ### 1. Ce qu'il te faut
 
 - Un PC sous **Windows 10 ou 11** (64 bits) et un **micro** (un casque micro, c'est le mieux).
-- **Crusader Kings III** sur Steam, avec le jeu réglé en **anglais**. Le copilote a été essayé avec CK3 1.20, en mode « Fullscreen » à 1920 × 1080, sur un seul écran.
+- **Crusader Kings III** sur Steam, avec le jeu réglé en **anglais** (dans le jeu : **Paramètres**, rubrique **Langue**, choisis English). Le copilote cite les boutons du jeu en anglais : ils doivent correspondre à ton écran. Il a été essayé avec CK3 1.20, en mode « Fullscreen » à 1920 × 1080, sur un seul écran.
 - Un **compte Google**. Google demande d'avoir 18 ans ou plus pour utiliser son API Gemini.
 - Une connexion Internet et environ **600 Mo** d'espace libre.
 - **Node.js**, un programme gratuit qui ne sert que pendant l'installation. Si tu ne l'as pas, l'installation t'explique comment l'obtenir.
@@ -254,13 +262,13 @@ Le copilote utilise l'IA de Google (Gemini) pour comprendre ta question, regarde
 1. Va sur **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)** et connecte-toi avec ton compte Google.
 2. La première fois, accepte les conditions. Google crée alors un projet pour toi, et souvent une première clé.
 3. Si aucune clé n'apparaît, clique sur **Create API key**.
-4. Copie la clé (bouton de copie à côté). Garde-la pour l'étape 4, et traite-la comme un mot de passe : quiconque l'a peut dépenser ton crédit.
-5. **Active la facturation (conseillé).** Sur la même page, dans la colonne **Billing Tier**, clique sur **Set up billing**, choisis ton pays et un moyen de paiement. Les nouveaux comptes paient d'avance au moins **5 $**.
+4. Copie la clé (bouton de copie à côté). Garde-la pour [la partie 4](#4-lancer-linstallation) (l'installation), et traite-la comme un mot de passe : quiconque l'a peut dépenser ton crédit.
+5. **Active la facturation (conseillé).** Clique sur **Set up billing** (dans la colonne **Billing Tier**, sur la page **API keys** ou **Projects**), puis choisis ton pays et un moyen de paiement. Les nouveaux comptes paient en général d'avance au moins **5 $**.
 
 **Pourquoi la facturation est conseillée.** Google propose aussi une offre gratuite, mais :
 
 - Avec l'offre gratuite, Google dit pouvoir utiliser ce que tu envoies pour améliorer ses produits, et des personnes peuvent le relire. Pour le copilote, ce sont tes questions dites à voix haute et les images de ton jeu. (Les conditions de Google disent que dans l'Espace économique européen, en Suisse et au Royaume-Uni, les règles de l'offre payante s'appliquent même à l'usage gratuit.)
-- Le copilote demande à la recherche Google de vérifier les faits à chaque réponse, et Google indique que la recherche **n'est pas disponible dans l'offre gratuite** pour ses modèles Gemini 3. Le copilote n'a pas été essayé avec une clé gratuite : attends-toi à ce que certaines réponses échouent, ou arrivent sans vérification sur Internet.
+- Le copilote demande à la recherche Google de vérifier les faits à chaque réponse, et Google indique que la recherche **n'est pas disponible dans l'offre gratuite** pour ses modèles Gemini 3. Le copilote n'a pas été essayé avec une clé gratuite : **il peut ne plus répondre du tout** (« Google ne répond pas » ou « Crédit Google épuisé »), même si l'installation dit « Google accepte cette clé » (ce contrôle prouve seulement que la clé existe, pas qu'elle peut utiliser la recherche).
 - L'offre gratuite a des limites par jour qu'une longue partie peut atteindre.
 
 Avec l'offre payante, Google n'utilise ni tes demandes ni les réponses pour améliorer ses produits. 5 $ d'avance font environ 500 questions aux prix actuels (voir [Ce que ça coûte](#9-ce-que-ça-coûte)).
@@ -270,14 +278,17 @@ Avec l'offre payante, Google n'utilise ni tes demandes ni les réponses pour am�
 ### 3. Télécharger le copilote
 
 1. Sur la [page GitHub du copilote](https://github.com/ameuryamani-lab/copilote-ck3), clique sur le bouton vert **Code**, puis sur **Download ZIP**.
-2. Ouvre ton dossier Téléchargements, fais un **clic droit** sur le fichier ZIP, puis **Extraire tout...**.
-3. Choisis un dossier que tu garderas, par exemple `C:\Jeux\Copilote CK3`. Évite le dossier Téléchargements (facile à vider par erreur) et les dossiers synchronisés par OneDrive (le copilote prend environ 400 Mo).
+2. Ouvre ton dossier Téléchargements, fais un **clic droit** sur le fichier ZIP (`copilote-ck3-main.zip`), puis **Extraire tout...**.
+3. Choisis un dossier que tu garderas, par exemple `C:\Jeux` (tape-le dans la case, ou clique sur **Parcourir...**), puis clique sur **Extraire**. Évite le dossier Téléchargements (facile à vider par erreur) et les dossiers synchronisés par OneDrive (le copilote prend environ 400 Mo).
+4. Windows met un dossier nommé **`copilote-ck3-main`** dans le dossier choisi, par exemple `C:\Jeux\copilote-ck3-main`. **C'est le dossier du copilote :** tout ce que ce guide appelle « le dossier du copilote » est là.
 
 Ne lance rien depuis l'intérieur du ZIP : extrais-le toujours d'abord.
 
 ### 4. Lancer l'installation
 
-Ouvre le dossier extrait et **double-clique sur `Installer-Copilote-CK3.cmd`**. Une fenêtre noire s'ouvre ; chaque message est écrit en anglais, puis en français.
+Ouvre le dossier du copilote (`copilote-ck3-main`) et **double-clique sur `Installer-Copilote-CK3.cmd`**. Une fenêtre noire s'ouvre ; chaque message est écrit en anglais, puis en français.
+
+> **Deux fichiers s'appellent « installer ».** Windows cache souvent la fin des noms de fichiers (`.cmd`, `.ps1`) : tu peux voir `Installer-Copilote-CK3` (type « Script de commande Windows ») à côté d'un fichier nommé seulement `installer`. Double-clique sur **`Installer-Copilote-CK3`**. Si le Bloc-notes (ou une fenêtre qui demande avec quelle appli ouvrir le fichier) s'ouvre, tu as ouvert `installer` : ferme-le et double-clique sur l'autre.
 
 > **Windows peut t'avertir,** parce que le fichier vient d'Internet et n'est pas signé par une entreprise :
 > - « Windows a protégé votre ordinateur » : clique sur **Informations complémentaires**, puis **Exécuter quand même**.
@@ -334,7 +345,7 @@ Le copilote met aussi une petite icône près de l'horloge (elle peut être cach
 2. Pose ta question à voix haute, par exemple « Qu'est-ce que je dois faire maintenant ? » ou « Comment obtenir un moyen de pression sur ce vassal ? ». Quand tu te tais, il arrête d'écouter tout seul.
 3. Le panneau s'ouvre et dit ce que fait le copilote (« Je regarde ton écran… », « Je réfléchis… »), avec un arc qui tourne autour de l'icône. Quelques secondes plus tard, la réponse s'affiche et il la lit à voix haute.
 
-**Mode talkie-walkie :** garde **Ctrl+Maj+Espace** enfoncé (plus d'une demi-seconde) pendant que tu parles, et lâche les touches quand tu as fini.
+**Mode talkie-walkie :** garde **Ctrl+Maj+Espace** enfoncé pendant que tu parles, et lâche les touches quand tu as fini. (Un appui bref, de moins d'une demi-seconde environ, lance plutôt le mode normal.)
 
 Les réponses sont courtes : une phrase, puis 2 à 4 étapes qui disent où cliquer, 70 mots au plus. Les noms des boutons sont donnés en anglais, exactement comme à l'écran. Le copilote se souvient des 4 dernières questions pendant 10 minutes : tu peux enchaîner avec « et ensuite ? ».
 
@@ -352,13 +363,13 @@ Le copilote n'appuie jamais sur une touche et ne clique jamais dans le jeu : il 
 
 ### 7. Lui montrer des choses en parlant
 
-Le copilote ne regarde pas l'écran seulement au moment où tu appuies. **Pendant toute ta question, il continue de regarder la fenêtre de CK3** (un coup d'œil léger environ une fois par seconde), puis envoie jusqu'à 4 vues avec ta question, plus un zoom autour du curseur de la souris pour lire l'info-bulle que tu survoles.
+Le copilote ne regarde pas l'écran seulement au moment où tu appuies. **Pendant toute ta question, il continue de regarder la fenêtre de CK3** (un coup d'œil léger environ une fois par seconde), puis envoie jusqu'à 4 vues avec ta question, avec des zooms autour du curseur de la souris pour lire l'info-bulle que tu survoles.
 
 Tu peux donc lui parler comme à un ami assis à côté de toi : « Regarde ce comté, ça vaut le coup de le prendre ? » en survolant le comté, ou ouvrir une fenêtre pendant que tu poses ta question.
 
 **Astuce :** arrête la souris une demi-seconde sur ce que tu veux qu'il voie. CK3 ouvre ses info-bulles quand la souris s'arrête, et le copilote préfère les moments où la souris était immobile.
 
-Seule la fenêtre de CK3 est capturée : jamais ton Bureau ni tes autres programmes, et jamais les fenêtres posées sur le jeu (le copilote compris). Les vues restent en mémoire et sont oubliées après la question ; seule la dernière image envoyée est gardée sur le disque (voir [Vie privée](#10-vie-privée)).
+Seule la fenêtre de CK3 est capturée : jamais ton Bureau ni tes autres programmes, et jamais les fenêtres posées sur le jeu (le copilote compris). Les vues restent en mémoire et sont oubliées après la question ; seule l'image principale de la dernière question est gardée sur le disque (voir [Vie privée](#10-vie-privée)).
 
 ### 8. Langue, voix et autres réglages
 
@@ -370,11 +381,13 @@ Fais un clic droit sur l'icône du copilote près de l'horloge :
 - **Langue / Language :** Français ou English. Par défaut, le copilote suit la langue de Windows. Changer de langue efface aussi la conversation.
 - **Quitter.**
 
-Deux réglages facultatifs se mettent dans le fichier `.env`, dans le dossier du copilote. Pour le modifier : clic droit sur `.env` > **Ouvrir avec** > **Bloc-notes**, change la ligne, enregistre.
+Trois réglages facultatifs se mettent dans le fichier `.env`, dans le dossier du copilote. Pour le modifier : clic droit sur `.env` > **Ouvrir avec** > **Bloc-notes**, change la ligne, puis **Fichier > Enregistrer**.
 
-- `COPILOTE_LANGUE=fr` ou `en` : la langue des réponses tant que tu n'en as pas choisi une dans le menu.
-- `COPILOTE_PRENOM=TonPrénom` : le copilote t'appelle par ton prénom (sinon il parle « au joueur »).
 - `OPENAI_API_KEY=` : colle une clé OpenAI après le signe `=` si tu veux le secours.
+- `COPILOTE_LANGUE=fr` ou `en` : la langue des réponses tant que tu n'en as pas choisi une dans le menu.
+- `COPILOTE_PRENOM=TonPrénom` : le copilote t'appelle par ton prénom (sinon il parle « au joueur »). Ton prénom part alors chez Google avec chaque question.
+
+Dans le fichier, les lignes `COPILOTE_LANGUE` et `COPILOTE_PRENOM` commencent par `#`, ce qui les désactive. Pour en utiliser une, **efface le `#` et l'espace qui le suit**, puis écris ta valeur après le signe `=`. Par exemple, `# COPILOTE_PRENOM=` devient `COPILOTE_PRENOM=Alex`. Les lignes qui commencent par `#` ne sont que des notes : le copilote les ignore.
 
 Relance le copilote (menu > **Quitter**, puis le raccourci du Bureau) après avoir modifié `.env`.
 
@@ -395,10 +408,10 @@ Prix vérifiés le 7 octobre 2026 ; Google peut les changer.
 
 - **Micro :** il ne s'ouvre que quand tu appuies sur les touches ou cliques sur l'icône, et l'icône reste rouge pendant qu'il écoute. Ta voix n'est pas enregistrée sur ton PC.
 - **Écran :** seule la fenêtre de CK3 est capturée, seulement pendant une question (40 secondes au plus), et les vues restent en mémoire.
-- **Ce qui part, et chez qui :** ta question enregistrée, jusqu'à 4 vues de la fenêtre de CK3 et les derniers échanges partent chez Google (ou chez OpenAI si tu as ajouté une clé de secours et que Google échoue). Rien n'est envoyé à l'auteur du copilote.
+- **Ce qui part, et chez qui :** ta question enregistrée, jusqu'à 4 vues de la fenêtre de CK3 (avec des zooms autour de la souris), les derniers échanges et, si tu l'as réglé, ton prénom partent chez Google (ou chez OpenAI si tu as ajouté une clé de secours et que Google échoue). Rien n'est envoyé à l'auteur du copilote.
 - **Ce qui reste sur ton PC**, dans le dossier du copilote :
   - `.env` : ta clé et tes réglages ;
-  - `memoire\copilote-ck3\` : réglages, position de l'icône, une copie des textes de l'Encyclopédie du jeu, et `derniere-capture.jpg`, la dernière image envoyée (remplacée à chaque question, gardée pour aider en cas de problème) ;
+  - `memoire\copilote-ck3\` : réglages, position de l'icône, une copie des textes de l'Encyclopédie du jeu, et `derniere-capture.jpg`, l'image principale de la dernière question (remplacée à chaque question, gardée pour aider en cas de problème) ;
   - `journal\copilote-ck3\` : tes questions, les réponses et leur coût, et le journal de l'appli.
 - **Réseau :** le petit serveur local du copilote n'écoute que sur ton propre PC (127.0.0.1) : personne sur ton réseau ne peut le joindre.
 - **Offre gratuite de Google :** voir [la partie 2](#2-obtenir-une-clé-google-gemini).
@@ -406,16 +419,16 @@ Prix vérifiés le 7 octobre 2026 ; Google peut les changer.
 ### 11. En cas de problème
 
 **L'icône n'apparaît pas sur le jeu.**
-L'icône ne s'affiche que quand CK3 est la fenêtre au premier plan. Si tu ne la vois toujours pas, passe CK3 en mode fenêtre : **Settings**, **Display Mode**, **Window**. Un clic sur l'icône du copilote près de l'horloge l'affiche aussi 15 secondes, et **Replacer l'icône et le panneau** la remet à sa place.
+L'icône ne s'affiche que quand CK3 est la fenêtre au premier plan. Si tu ne la vois toujours pas, passe CK3 en mode fenêtre : appuie sur **Échap**, puis **Settings** > **Graphics** > **Display Mode** > **Window** (le jeu est en anglais). Un clic sur l'icône du copilote près de l'horloge l'affiche aussi 15 secondes, et **Replacer l'icône et le panneau** la remet à sa place.
 
 **Ctrl+Maj+Espace ne fait rien.**
-Clique plutôt sur l'icône micro. Si la ligne d'état dit « Raccourci indisponible : clique sur l'icône », un autre programme utilise ce raccourci. « (raccourci en bascule seulement) » veut dire que le raccourci marche, mais pas en talkie-walkie.
+Le raccourci ne marche que quand CK3 est la fenêtre au premier plan : clique d'abord dans le jeu. Sinon, clique plutôt sur l'icône micro. Si la ligne d'état dit « Raccourci indisponible : clique sur l'icône », un autre programme utilise ce raccourci. « (raccourci en bascule seulement) » veut dire que le raccourci marche, mais pas en talkie-walkie.
 
 **« Le micro est bloqué ».**
-Ouvre les **Paramètres** de Windows > **Confidentialité et sécurité** > **Microphone**, et active **Accès au microphone** et **Autoriser les applications de bureau à accéder au microphone**. Pour « Aucun micro trouvé », branche ton casque. Pour « Le micro ne répond pas », vérifie qu'aucun autre programme ne l'utilise et que le bon micro est choisi dans **Paramètres > Système > Son > Entrée**.
+Ouvre les **Paramètres** de Windows > **Confidentialité et sécurité** > **Micro** (ou **Microphone**, selon la version), et active **Accès au micro** et **Autoriser les applications de bureau à accéder à votre micro**. Sous Windows 10, des interrupteurs semblables sont dans **Paramètres > Confidentialité > Microphone**. Pour « Aucun micro trouvé », branche ton casque. Pour « Le micro ne répond pas », vérifie qu'aucun autre programme ne l'utilise et que le bon micro est choisi dans **Paramètres > Système > Son > Entrée**.
 
-**« Electron not found / Electron introuvable » au lancement.**
-L'installation n'est pas finie : double-clique de nouveau sur `Installer-Copilote-CK3.cmd`.
+**« Electron not found / Electron introuvable » au lancement, ou Windows affiche « Problème de raccourci ».**
+L'installation n'est pas finie, ou le dossier du copilote a été déplacé. Double-clique de nouveau sur `Installer-Copilote-CK3.cmd` : elle termine l'installation et refait le raccourci du Bureau. Si la fenêtre noire propose aussi des commandes `npm`, ignore-les : l'installation s'en charge.
 
 **Windows refuse d'ouvrir l'installation.**
 Clic droit sur le fichier ZIP téléchargé > **Propriétés** > coche **Débloquer** en bas > **OK**, puis extrais-le de nouveau. Si l'installation dit que tu l'as ouverte « depuis l'intérieur du ZIP », extrais d'abord le ZIP (voir [la partie 3](#3-télécharger-le-copilote)).
@@ -433,6 +446,9 @@ Le code est ouvert : tu peux lire `aide-windows.ps1`, ou demander à quelqu'un d
 - « Crédit Google épuisé » : ajoute du crédit dans Google AI Studio (Billing).
 - « Google ne répond pas » : vérifie ta connexion Internet, et que ta clé existe toujours dans AI Studio. Avec une clé gratuite, voir [la partie 2](#2-obtenir-une-clé-google-gemini).
 
+**Mauvaise clé enregistrée, ou nouvelle clé ?**
+L'installation garde une clé déjà enregistrée et ne la redemande pas. Ouvre `.env` avec le Bloc-notes (voir [la partie 8](#8-langue-voix-et-autres-réglages)), remplace le texte après `GEMINI_API_KEY=` par ta nouvelle clé (sans espace ni guillemets), enregistre, puis relance le copilote.
+
 **« CK3 n'est pas lancé » alors que le jeu est ouvert.**
 CK3 doit être lancé et pas réduit. Clique dans le jeu, puis repose ta question.
 
@@ -445,13 +461,13 @@ Le copilote est en bêta et peut se tromper. Tu peux le signaler dans l'onglet [
 ### 12. Mettre à jour
 
 1. Quitte le copilote (clic droit sur son icône près de l'horloge > **Quitter**).
-2. Télécharge le nouveau ZIP et extrais-le **dans le même dossier**, en remplaçant les fichiers. Ton `.env`, tes réglages et tes journaux ne sont pas dans le ZIP : ils sont gardés.
+2. Télécharge le nouveau ZIP et extrais-le **au même endroit que la première fois** (par exemple `C:\Jeux`), pour qu'il arrive dans le même dossier `copilote-ck3-main`. Quand Windows le demande, choisis **Remplacer les fichiers dans la destination**. Ton `.env`, tes réglages et tes journaux ne sont pas dans le ZIP : ils sont gardés.
 3. Double-clique de nouveau sur `Installer-Copilote-CK3.cmd` : il met Electron à jour si besoin.
 
 ### 13. Désinstaller
 
 1. Quitte le copilote (clic droit sur son icône près de l'horloge > **Quitter**).
-2. Supprime le dossier du copilote. Cela supprime aussi ta clé, tes réglages et tes journaux.
+2. Supprime le dossier du copilote (`copilote-ck3-main`). Cela supprime aussi ta clé, tes réglages et tes journaux.
 3. Supprime le raccourci **CK3 Copilot** de ton Bureau.
 4. Facultatif : supprime les dossiers `%APPDATA%\copilote-ck3` (les données d'Electron pour le copilote) et `%LOCALAPPDATA%\electron\Cache` (le téléchargement d'Electron, environ 150 Mo ; d'autres programmes basés sur Electron que tu installes toi-même peuvent s'en servir aussi). Tape ces noms dans la barre d'adresse de l'Explorateur de fichiers pour les ouvrir.
 5. Facultatif : désinstalle Node.js (**Paramètres > Applications**) si tu ne t'en sers pas pour autre chose, et supprime ta clé dans Google AI Studio si tu ne l'utilises plus.
