@@ -5,7 +5,11 @@
 # - crochet clavier bas niveau (WH_KEYBOARD_LL) pour Ctrl+Maj+Espace : il avale seulement ce combo, et seulement quand CK3 est
 #   au premier plan (sinon CK3 basculerait la pause) ; ailleurs (Word : espace insécable) le combo passe sans rien déclencher.
 #   Toutes les autres touches passent ; il n'envoie jamais de touche ;
-# - il se ferme tout seul quand stdin se ferme (Node mort) : aucun processus orphelin ne garde le crochet.
+# - il se ferme tout seul quand stdin se ferme (Node mort) : aucun processus orphelin ne garde le crochet ;
+# - regard pendant une question (07/10/2026) : « apercu » imprime CK3 sans encoder d'image et rend une empreinte grise 32x18
+#   (pour que Node voie si l'écran a changé), la souris et depuis quand elle est immobile (position lue en lecture seule,
+#   10 fois par seconde, 25 pendant une question) ; l'image reste en mémoire ici et « capturer » avec son jeton l'encode telle
+#   quelle. Rien n'est imprimé quand CK3 n'est pas au premier plan.
 # Les messages pour Ameur sont en français côté Node (aide-windows.mjs) : ici, seulement des codes ASCII.
 # C# 5 seulement (PowerShell 5.1) : pas de $"", pas de =>, pas de ?. Add-Type traite les avertissements comme des erreurs
 # (une variable inutilisée suffit à tout bloquer) : relancer essais/essai-aide.mjs après chaque retouche.
@@ -75,6 +79,18 @@ namespace CopiloteCk3
       if (!tenu) return false;
       tenu = false; evt = "relache"; return true;
     }
+  }
+
+  // Une vue de CK3 imprimée, pas encore encodée : image, empreinte, souris au moment de l'impression.
+  public sealed class Vue
+  {
+    public Bitmap Image;
+    public byte[] Signature;
+    public int X, Y;
+    public bool Dedans, SurJeu, PremierPlan;
+    public double Moyenne, Ecart;
+    public uint Options;
+    public long Immobile, Jeton, Quand, MsImpression;
   }
 
   // Objet JSON écrit à la main : pas de dépendance (System.Web.Extensions) et les longues chaînes base64 passent telles quelles.
@@ -165,6 +181,16 @@ namespace CopiloteCk3
     static long appels, espaces, avales, ticksTotal, ticksMax, reinstallations;
     static readonly DateTime epoque = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
+    // Empreinte d'une vue : gris moyen de chaque case d'une grille 32x18 (576 octets).
+    public const int SIG_L = 32, SIG_H = 18;
+    // Dernier aperçu, gardé en mémoire (fil de travail seulement) jusqu'à son encodage, l'aperçu suivant ou 10 s.
+    static Vue retenue;
+    static long jetons;
+    // Suivi de la souris : horodatages Stopwatch (début du suivi, dernier mouvement, fin du relevé rapide), lus et écrits par
+    // deux fils.
+    static Thread filSouris;
+    static long sourisDebut, sourisBouge, sourisJusqua;
+
     public static void Executer(string processus, bool avecCrochet)
     {
       if (!string.IsNullOrEmpty(processus)) nomProcessus = processus;
@@ -182,6 +208,8 @@ namespace CopiloteCk3
         filCrochet.Start();
         crochetPret.WaitOne(5000);
       }
+      sourisDebut = sourisBouge = Stopwatch.GetTimestamp();
+      filSouris = new Thread(BoucleSouris); filSouris.IsBackground = true; filSouris.Start();
       filTravail = new Thread(Travailleur); filTravail.IsBackground = true; filTravail.Start();
 
       Envoyer(new Obj().Bool("pret", true).Ent("pid", Process.GetCurrentProcess().Id).Txt("processus", nomProcessus)
@@ -243,6 +271,8 @@ namespace CopiloteCk3
       foreach (string ligne in fileCommandes.GetConsumingEnumerable())
       {
         string id = "null";
+        // Un aperçu jamais réclamé (question annulée, Node arrêté au mauvais moment) ne reste pas en mémoire.
+        if (retenue != null && AgeMs(retenue) > 10000) Liberer();
         try
         {
           Dictionary<string, string> req = LireObjet(ligne);
@@ -251,7 +281,9 @@ namespace CopiloteCk3
           string cmd = req.TryGetValue("cmd", out v) ? v : "";
           string res;
           if (cmd == "etat") res = Etat();
-          else if (cmd == "capturer") res = Capturer(Entier(req, "qualite", 85), Entier(req, "largeurMax", 1920), Entier(req, "zoomL", 960), Entier(req, "zoomH", 600));
+          else if (cmd == "capturer") res = Capturer(Entier(req, "qualite", 85), Entier(req, "largeurMax", 1920), Entier(req, "zoomL", 960), Entier(req, "zoomH", 600), Entier(req, "jeton", 0));
+          else if (cmd == "apercu") res = Apercu();
+          else if (cmd == "liberer") { bool avait = retenue != null; Liberer(); res = new Obj().Bool("libere", avait).ToString(); }
           else if (cmd == "diagnostic") res = Diagnostic();
           else if (cmd == "banc") res = Banc();
           else if (cmd == "reinstaller") res = DemanderReinstallation();
@@ -368,30 +400,85 @@ namespace CopiloteCk3
       return null;
     }
 
-    // Luminosité moyenne et écart-type sur un pixel sur 16 : une capture ratée de DirectX revient noire et uniforme.
-    static void Luminosite(Bitmap bmp, out double moyenne, out double ecart)
+    // Luminosité moyenne et écart-type sur un pixel sur 16 : une capture ratée de DirectX revient noire et uniforme. Dans le même
+    // passage, l'empreinte (signature, si demandée) : gris moyen de chaque case 32x18, de quoi dire à Node si l'écran a changé
+    // (info-bulle, panneau ouvert, carte déplacée) sans encoder ni envoyer d'image.
+    static void Analyser(Bitmap bmp, byte[] signature, out double moyenne, out double ecart)
     {
       BitmapData d = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
       try
       {
-        int pas = Math.Abs(d.Stride);
+        int pas = Math.Abs(d.Stride), w = bmp.Width, ht = bmp.Height;
         byte[] ligne = new byte[pas];
+        double[] sommes = new double[SIG_L * SIG_H];
+        int[] nombres = new int[SIG_L * SIG_H];
         double s = 0, s2 = 0; long n = 0;
-        for (int y = 0; y < bmp.Height; y += 4)
+        for (int y = 0; y < ht; y += 4)
         {
           Marshal.Copy(new IntPtr(d.Scan0.ToInt64() + (long)y * d.Stride), ligne, 0, pas);
-          for (int x = 0; x < bmp.Width; x += 4)
+          int rang = (y * SIG_H / ht) * SIG_L;
+          for (int x = 0; x < w; x += 4)
           {
             int i = x * 3;
             double l = 0.114 * ligne[i] + 0.587 * ligne[i + 1] + 0.299 * ligne[i + 2];
             s += l; s2 += l * l; n++;
+            int k = rang + x * SIG_L / w;
+            sommes[k] += l; nombres[k]++;
           }
         }
         moyenne = n > 0 ? s / n : 0;
         double v = n > 0 ? s2 / n - moyenne * moyenne : 0;
         ecart = v > 0 ? Math.Sqrt(v) : 0;
+        if (signature != null)
+          for (int k = 0; k < sommes.Length && k < signature.Length; k++)
+            signature[k] = (byte)Math.Max(0, Math.Min(255, Math.Round(nombres[k] > 0 ? sommes[k] / nombres[k] : 0)));
       }
       finally { bmp.UnlockBits(d); }
+    }
+
+    // ---------- souris ----------
+    // Les info-bulles de CK3 n'apparaissent que si la souris reste immobile. Ce fil lit sa position (lecture seule, quelques µs) :
+    // toutes les 100 ms en temps normal, pour savoir AU MOMENT DE L'APPUI depuis quand elle ne bouge plus (Ameur survole une
+    // info-bulle, puis appuie : le suivi qui ne démarrait qu'à l'appui annonçait « souris en mouvement » sur cette image), et toutes
+    // les 40 ms pendant les 45 s qui suivent une capture. Seuls le dernier point de repos et l'heure du dernier mouvement sont gardés.
+    static void BoucleSouris()
+    {
+      bool premier = true;
+      int ax = 0, ay = 0;
+      while (true)
+      {
+        POINT p;
+        if (GetCursorPos(out p))
+        {
+          // Comparée au dernier point de repos, pas au relevé précédent : un glissement lent compte aussi comme un mouvement.
+          if (premier || Math.Abs(p.X - ax) > 2 || Math.Abs(p.Y - ay) > 2)
+          {
+            if (!premier) Interlocked.Exchange(ref sourisBouge, Stopwatch.GetTimestamp());
+            premier = false; ax = p.X; ay = p.Y;
+          }
+        }
+        Thread.Sleep(Stopwatch.GetTimestamp() < Interlocked.Read(ref sourisJusqua) ? 40 : 100);
+      }
+    }
+
+    // Relevé rapide pendant la question qui commence.
+    static void SuivreSouris() { Interlocked.Exchange(ref sourisJusqua, Stopwatch.GetTimestamp() + 45 * Stopwatch.Frequency); }
+
+    // Depuis quand la souris ne bouge plus (ms), ou -1 si on l'ignore : aucun mouvement vu depuis le début du suivi (aide qui vient
+    // de démarrer ou d'être relancée) et moins de 0,5 s de suivi. Au-delà, c'est un minimum, vrai dans tous les cas.
+    static long ImmobileMs()
+    {
+      long bouge = Interlocked.Read(ref sourisBouge);
+      long ms = (Stopwatch.GetTimestamp() - bouge) * 1000 / Stopwatch.Frequency;
+      return bouge == sourisDebut && ms < 500 ? -1 : ms;
+    }
+    static long AgeMs(Vue v) { return (Stopwatch.GetTimestamp() - v.Quand) * 1000 / Stopwatch.Frequency; }
+
+    static void Liberer()
+    {
+      if (retenue == null) return;
+      if (retenue.Image != null) retenue.Image.Dispose();
+      retenue = null;
     }
 
     static byte[] Jpeg(Image img, long qualite)
@@ -422,27 +509,33 @@ namespace CopiloteCk3
       return dst;
     }
 
-    static string Capturer(int qualite, int largeurMax, int zoomL, int zoomH)
+    // CK3 capturable ? Fenêtre trouvée, ni réduite, ni figée (PrintWindow attendrait indéfiniment), assez grande.
+    static IntPtr FenetreCapturable(out int w, out int ht)
     {
-      Stopwatch chrono = Stopwatch.StartNew();
-      qualite = Math.Max(30, Math.Min(95, qualite)); largeurMax = Math.Max(320, largeurMax);
       IntPtr h = TrouverCk3();
       if (h == IntPtr.Zero) throw new ErreurAide("pas-lance", "aucune fenetre " + nomProcessus);
       if (IsIconic(h)) throw new ErreurAide("reduit", "fenetre reduite");
-      // Une fenêtre bloquée ferait attendre PrintWindow indéfiniment.
       if (IsHungAppWindow(h)) throw new ErreurAide("ne-repond-pas", "fenetre bloquee");
       RECT rc; GetClientRect(h, out rc);
-      int w = rc.R - rc.L, ht = rc.B - rc.T;
+      w = rc.R - rc.L; ht = rc.B - rc.T;
       if (w < 64 || ht < 64) throw new ErreurAide("trop-petite", "zone client " + w + "x" + ht);
+      return h;
+    }
 
+    // Zone client de CK3 imprimée, avec son empreinte et la souris de cet instant.
+    static Vue Prendre(IntPtr h, int w, int ht)
+    {
+      Stopwatch chrono = Stopwatch.StartNew();
+      Vue v = new Vue();
+      v.Signature = new byte[SIG_L * SIG_H];
       // Options 3 = PW_CLIENTONLY | PW_RENDERFULLCONTENT (le contenu DirectX passe par DWM) ; options 2 en secours.
-      double moyenne = 0, ecart = 0; uint options = 3;
+      v.Options = 3;
       Bitmap image = Imprimer(h, 3, w, ht);
-      if (image != null) Luminosite(image, out moyenne, out ecart);
-      if (image == null || ecart < 2)
+      if (image != null) Analyser(image, v.Signature, out v.Moyenne, out v.Ecart);
+      if (image == null || v.Ecart < 2)
       {
         if (image != null) image.Dispose();
-        image = null; options = 2;
+        image = null; v.Options = 2;
         RECT wr; GetWindowRect(h, out wr);
         POINT o = new POINT(); ClientToScreen(h, ref o);
         Bitmap entiere = Imprimer(h, 2, wr.R - wr.L, wr.B - wr.T);
@@ -458,25 +551,72 @@ namespace CopiloteCk3
           }
         }
         if (image == null) throw new ErreurAide("echec", "PrintWindow a echoue");
-        Luminosite(image, out moyenne, out ecart);
-        if (ecart < 2) { image.Dispose(); throw new ErreurAide("noire", "ecart-type " + ecart.ToString("0.##", CultureInfo.InvariantCulture)); }
+        Analyser(image, v.Signature, out v.Moyenne, out v.Ecart);
+        if (v.Ecart < 2) { image.Dispose(); throw new ErreurAide("noire", "ecart-type " + v.Ecart.ToString("0.##", CultureInfo.InvariantCulture)); }
       }
-      long msImpression = chrono.ElapsedMilliseconds;
+      v.Image = image;
+      v.MsImpression = chrono.ElapsedMilliseconds;
+      // Curseur en pixels de la zone client. surJeu : sur la fenêtre de CK3 elle-même ; sinon (icône du copilote par exemple)
+      // pas de zoom, il montrerait un endroit que personne ne désigne.
+      POINT c; GetCursorPos(out c);
+      POINT origine = new POINT(); ClientToScreen(h, ref origine);
+      v.X = c.X - origine.X; v.Y = c.Y - origine.Y;
+      v.Dedans = v.X >= 0 && v.Y >= 0 && v.X < image.Width && v.Y < image.Height;
+      v.SurJeu = v.Dedans && GetAncestor(WindowFromPoint(c), GA_ROOT) == h;
+      v.Immobile = ImmobileMs();
+      v.PremierPlan = AuPremierPlan(pidFenetre);
+      v.Quand = Stopwatch.GetTimestamp();
+      return v;
+    }
 
+    // Aperçu léger pendant une question : impression + empreinte + souris, sans JPEG. L'image reste ici, en mémoire, avec un jeton :
+    // si Node juge la vue nouvelle, « capturer » avec ce jeton l'encode telle quelle (pas de second PrintWindow, et l'info-bulle vue
+    // dans l'aperçu est bien celle de l'image). CK3 pas au premier plan : rien n'est imprimé (Ameur est passé à une autre appli).
+    static string Apercu()
+    {
+      Stopwatch chrono = Stopwatch.StartNew();
+      SuivreSouris();
+      Liberer();
+      int w, ht;
+      IntPtr h = FenetreCapturable(out w, out ht);
+      if (!AuPremierPlan(pidFenetre))
+        return new Obj().Bool("premierPlan", false).Ent("immobileMs", ImmobileMs()).Ent("ms", chrono.ElapsedMilliseconds).ToString();
+      Vue v = Prendre(h, w, ht);
+      v.Jeton = ++jetons;
+      retenue = v;
+      return new Obj().Bool("premierPlan", v.PremierPlan).B64("signature", v.Signature)
+        .Brut("curseur", v.Dedans ? new Obj().Ent("x", v.X).Ent("y", v.Y).ToString() : null).Bool("curseurSurJeu", v.SurJeu)
+        .Ent("immobileMs", v.Immobile).Ent("jeton", v.Jeton).Ent("largeurFenetre", v.Image.Width).Ent("hauteurFenetre", v.Image.Height)
+        .Dec("ecartType", v.Ecart).Ent("msImpression", v.MsImpression).Ent("ms", chrono.ElapsedMilliseconds).ToString();
+    }
+
+    // jeton > 0 : encode l'aperçu gardé (3 s au plus), sinon imprime CK3 maintenant.
+    static string Capturer(int qualite, int largeurMax, int zoomL, int zoomH, long jeton)
+    {
+      Stopwatch chrono = Stopwatch.StartNew();
+      qualite = Math.Max(30, Math.Min(95, qualite)); largeurMax = Math.Max(320, largeurMax);
+      Vue v;
+      if (jeton > 0)
+      {
+        v = retenue;
+        if (v == null || v.Jeton != jeton || AgeMs(v) > 3000) throw new ErreurAide("perimee", "apercu " + jeton + " indisponible");
+        retenue = null;
+      }
+      else
+      {
+        SuivreSouris();
+        int w, ht;
+        IntPtr h = FenetreCapturable(out w, out ht);
+        v = Prendre(h, w, ht);
+      }
+      Bitmap image = v.Image;
       try
       {
-        // Curseur en pixels de la zone client. Pas de zoom s'il est hors du jeu ou sur une autre fenêtre
-        // (l'icône du copilote par exemple) : le zoom montrerait alors un endroit que personne ne désigne.
-        POINT c; GetCursorPos(out c);
-        POINT origine = new POINT(); ClientToScreen(h, ref origine);
-        int cx = c.X - origine.X, cy = c.Y - origine.Y;
-        bool dedans = cx >= 0 && cy >= 0 && cx < image.Width && cy < image.Height;
-        bool surJeu = dedans && GetAncestor(WindowFromPoint(c), GA_ROOT) == h;
         byte[] zoom = null; string zoneZoom = null;
-        if (surJeu)
+        if (v.SurJeu)
         {
           int zl = Math.Min(Math.Max(64, zoomL), image.Width), zh = Math.Min(Math.Max(64, zoomH), image.Height);
-          int x0 = Math.Max(0, Math.Min(cx - zl / 2, image.Width - zl)), y0 = Math.Max(0, Math.Min(cy - zh / 2, image.Height - zh));
+          int x0 = Math.Max(0, Math.Min(v.X - zl / 2, image.Width - zl)), y0 = Math.Max(0, Math.Min(v.Y - zh / 2, image.Height - zh));
           using (Bitmap z = image.Clone(new Rectangle(x0, y0, zl, zh), PixelFormat.Format24bppRgb)) zoom = Jpeg(z, qualite);
           zoneZoom = Rect(x0, y0, zl, zh);
         }
@@ -489,10 +629,11 @@ namespace CopiloteCk3
         else plein = Jpeg(image, qualite);
         long ms = chrono.ElapsedMilliseconds;
         return new Obj().B64("plein", plein).B64("zoom", zoom).Brut("zoneZoom", zoneZoom)
-          .Brut("curseur", dedans ? new Obj().Ent("x", cx).Ent("y", cy).ToString() : null).Bool("curseurSurJeu", surJeu)
+          .Brut("curseur", v.Dedans ? new Obj().Ent("x", v.X).Ent("y", v.Y).ToString() : null).Bool("curseurSurJeu", v.SurJeu)
           .Ent("largeur", largeur).Ent("hauteur", hauteur).Ent("largeurFenetre", image.Width).Ent("hauteurFenetre", image.Height)
-          .Dec("ecartType", ecart).Dec("moyenne", moyenne).Ent("options", options).Bool("premierPlan", AuPremierPlan(pidFenetre))
-          .Ent("msImpression", msImpression).Ent("ms", ms).ToString();
+          .Dec("ecartType", v.Ecart).Dec("moyenne", v.Moyenne).Ent("options", v.Options).Bool("premierPlan", v.PremierPlan)
+          .B64("signature", v.Signature).Ent("immobileMs", v.Immobile).Ent("ageMs", AgeMs(v))
+          .Ent("msImpression", v.MsImpression).Ent("ms", ms).ToString();
       }
       finally { image.Dispose(); }
     }
@@ -576,7 +717,8 @@ namespace CopiloteCk3
       long n = appels;
       return new Obj().Bool("crochet", hCrochet != IntPtr.Zero).Ent("erreurCrochet", erreurCrochet).Ent("appels", n).Ent("espaces", espaces)
         .Ent("avales", avales).Dec("microMax", Micro(ticksMax)).Dec("microMoyen", n > 0 ? Micro(ticksTotal) / n : 0)
-        .Ent("reinstallations", reinstallations).Bool("tenu", raccourci.Tenu).Ent("horsJeu", raccourci.HorsJeu).Bool("premierPlanJeu", PremierPlanJeu()).ToString();
+        .Ent("reinstallations", reinstallations).Bool("tenu", raccourci.Tenu).Ent("horsJeu", raccourci.HorsJeu).Bool("premierPlanJeu", PremierPlanJeu())
+        .Ent("immobileMs", ImmobileMs()).ToString();
     }
 
     // Banc d'essai de la décision du raccourci, sur une instance à part : aucune touche n'est envoyée au système.

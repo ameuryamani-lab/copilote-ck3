@@ -134,6 +134,7 @@ export function creerCopiloteFactice({delai = 40} = {}) {
       extensions: {possedees: ['Garments of the Holy Roman Empire'], manquantes: ['By God Alone']}, cle: {gemini: true, openai: true}, voix: 'Kore'}), true;
     if (url.pathname === '/api/jeu/oublier' && req.method === 'POST') { req.resume(); echanges = 0; return json(res, 200, {ok: true}), true; }
     if (url.pathname === '/api/jeu/capturer' && req.method === 'POST') { req.resume(); return json(res, 200, {ok: true, factice: true}), true; }
+    if (url.pathname === '/api/jeu/regard/arret' && req.method === 'POST') { req.resume(); return json(res, 200, {ok: true, arrete: false, factice: true}), true; }
     if (url.pathname !== '/api/jeu/question' || req.method !== 'POST') return json(res, 404, {erreur: 'route inconnue'}), true;
     let corps;
     try { corps = JSON.parse((await lireCorps(req)) || '{}'); } catch (e) { return json(res, e.message === 'trop gros' ? 413 : 400, {erreur: 'corps invalide'}), true; }

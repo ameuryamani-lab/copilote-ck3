@@ -1,10 +1,16 @@
 // Essai du cerveau du copilote CK3 (agent/copilote-jeu.mjs + agent/copilote-ck3-savoir.mjs), sans Electron ni aide Windows.
 // Aucune vraie capture : une fausse aide renvoie l'image synthétique ck3-test.jpg. Coût réel : quelques cents (Gemini, un appel OpenAI).
-// Usage : node essai-cerveau.mjs [savoir,a,b,suite,annulation,silence,erreurs,secours] [--image=chemin.jpg] [--regenerer] [--question="…"]
-//         [--langue=en] [--sans-voix]
-// (savoir et erreurs ne coûtent rien ; secours fait UN appel OpenAI ; les autres appellent Gemini.)
+// Usage : node essai-cerveau.mjs [savoir,a,b,suite,annulation,silence,erreurs,secours,regard,regard-reel] [--image=chemin.jpg] [--regenerer]
+//         [--question="…"] [--langue=en] [--sans-voix]
+// (savoir, erreurs et regard ne coûtent rien ; secours fait UN appel OpenAI ; les autres appellent Gemini.)
+// regard (07/10/2026) : le regard pendant la question, avec une fausse aide qui joue des scènes (info-bulle qui apparaît, écran
+// immobile, CK3 quitté, CK3 fermé, souris immobile avant l'appui, impressions lentes, son muet, capture de l'appui ratée) et un
+// faux Google qui garde la requête envoyée : images choisies, libellés, résolutions, annulation, vues d'un appui précédent jamais
+// utilisées, ralentissement et arrêt du regard. regard-reel (UNE question à Gemini, ~1 cent, hors de la liste par
+// défaut) : la vraie aide regarde le vrai CK3 6 s (aucune touche, aucune fenêtre), puis une question écrite (--parle : la question
+// parlée d'essai, avec la voix).
 // --langue=en (06/10/2026) : questions écrites posées en anglais ; l'étape a vérifie alors la langue de la réponse et le gras.
-import {readFile, writeFile, access} from 'node:fs/promises';
+import {readFile, writeFile, access, mkdir, readdir, copyFile, mkdtemp, rm} from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,7 +27,7 @@ const QUESTION_PARLEE = 'Le bouton pour déclarer la guerre est grisé. Comment 
 const LANGUE = arg('langue') === 'en' ? 'en' : 'fr';
 const VOIX = !process.argv.includes('--sans-voix');
 const QUESTION_ECRITE = arg('question') || (LANGUE === 'en' ? 'Why can\'t I declare war on Guilhem of Toulouse?' : 'Pourquoi je ne peux pas déclarer la guerre à Guilhem de Toulouse ?');   // --question="…" pour une autre
-const ETAPES = (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'savoir,a,b,suite,annulation,silence,erreurs,secours').split(',');
+const ETAPES = (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'savoir,a,b,suite,annulation,silence,erreurs,secours,regard').split(',');
 
 // Langue d'une réponse, à la louche : mots outils français contre anglais, hors libellés en gras (anglais dans les deux langues).
 function langueDe(texte) {
@@ -33,7 +39,7 @@ function langueDe(texte) {
 }
 
 const {chargerSavoirCk3} = await import(pathToFileURL(path.join(ROOT, 'agent', 'copilote-ck3-savoir.mjs')));
-const {creerCopiloteJeu} = await import(pathToFileURL(path.join(ROOT, 'agent', 'copilote-jeu.mjs')));
+const {creerCopiloteJeu, choisirVues} = await import(pathToFileURL(path.join(ROOT, 'agent', 'copilote-jeu.mjs')));
 
 // .env lu ici sans jamais afficher les valeurs.
 const env = {};
@@ -222,6 +228,296 @@ if (ETAPES.includes('secours')) {
   const copilote = creerCopiloteJeu({root: ROOT, env, aide: fausseAide(), modeles: {reponse: 'gemini-modele-inexistant'}});
   const r = await poser(copilote, 'secours OpenAI (Gemini en panne forcée)', {texte: QUESTION_ECRITE, voix: false});
   total += r.fin?.coutCents || 0; await derniereLigneJournal();
+}
+
+// Racine temporaire pour le regard : le journal des questions et la capture de dépannage n'y touchent pas ceux d'Ameur ; l'index de
+// l'Encyclopédie déjà construit est copié pour ne pas le refaire.
+async function racineTemporaire() {
+  const racine = await mkdtemp(path.join(os.tmpdir(), 'copilote-regard-'));
+  await mkdir(path.join(racine, 'memoire', 'copilote-ck3'), {recursive: true});
+  const cache = path.join(ROOT, 'memoire', 'copilote-ck3');
+  for (const f of (await readdir(cache).catch(() => [])).filter(f => /^savoir-.*\.json$/.test(f))) await copyFile(path.join(cache, f), path.join(racine, 'memoire', 'copilote-ck3', f));
+  return racine;
+}
+const journalDe = async racine => {
+  const f = path.join(racine, 'journal', 'copilote-ck3', `questions-${new Intl.DateTimeFormat('fr-CA').format(new Date()).slice(0, 7)}.jsonl`);
+  return (await readFile(f, 'utf8')).trim().split('\n').map(l => JSON.parse(l));
+};
+
+if (ETAPES.includes('regard')) {
+  console.log('\n=== Regard pendant la question (fausse aide, faux Google : aucun appel payant) ===');
+  const racine = await racineTemporaire();
+  const resultats = [];
+  const verifier = (nom, ok, details = '') => { resultats.push(ok); console.log(`${ok ? 'OK   ' : 'ÉCHEC'} ${nom}${details ? ' : ' + details : ''}`); };
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  const silencieux = {log() {}, warn() {}, error() {}};
+  // Empreintes de scènes : fond uni ; une « info-bulle » = 15 cases plus claires (k choisit leur place).
+  const fond = () => Buffer.alloc(576, 90);
+  const bulle = k => { const s = fond(); for (let i = 0; i < 15; i++) s[(k * 37 + i * 3) % 576] = 210; return s; };
+  const scene = (nom, signature, extra = {}) => ({nom, signature, curseur: {x: 900, y: 500}, immobileMs: 0, devant: true, ...extra});
+  // Fausse aide : la scène courante change au fil du temps comme l'écran d'Ameur ; capturer({jeton}) rend la vue de cet aperçu.
+  // msImpression de la scène : durée annoncée du PrintWindow (lenteur simulée) ; quand : début de chaque aperçu (rythme).
+  function aideScenes(depart) {
+    const a = {courante: depart, appels: {apercu: 0, capturer: 0, jeton: 0, liberer: 0}, jetons: new Map(), n: 0, quand: []};
+    const vue = s => ({plein: Buffer.from(`plein-${s.nom}`), zoom: Buffer.from(`zoom-${s.nom}`), curseur: s.curseur, curseurSurJeu: true, largeur: 1920, hauteur: 1080,
+      signature: s.signature, immobileMs: s.immobileMs, ms: 2, msImpression: s.msImpression});
+    Object.assign(a, {
+      async etat() { return {ck3: true}; },
+      async capturer(o = {}) {
+        a.appels.capturer++;
+        if (o.jeton) { a.appels.jeton++; const s = a.jetons.get(o.jeton); if (!s) throw Object.assign(new Error('Aperçu de CK3 périmé'), {code: 'perimee'}); return vue(s); }
+        if (a.courante.erreur) throw Object.assign(new Error(a.courante.erreur), {code: a.courante.code});
+        return vue(a.courante);
+      },
+      async apercu() {
+        a.appels.apercu++; a.quand.push(Date.now());
+        const s = a.courante;
+        if (s.erreur) throw Object.assign(new Error(s.erreur), {code: s.code});
+        if (!s.devant) return {premierPlan: false, immobileMs: 0};
+        a.jetons.set(++a.n, s);
+        return {premierPlan: true, signature: s.signature, curseur: s.curseur, curseurSurJeu: true, immobileMs: s.immobileMs, jeton: a.n, msImpression: s.msImpression};
+      },
+      async liberer() { a.appels.liberer++; return {libere: true}; },
+    });
+    return a;
+  }
+  // Faux Google : garde chaque requête, répond une phrase en flux SSE.
+  const requetes = [], vraiFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    if (!String(url).startsWith('https://generativelanguage.googleapis.com/')) throw new Error(`appel inattendu pendant l'essai : ${url}`);
+    requetes.push({url: String(url), corps: JSON.parse(options.body)});
+    const sse = `data: ${JSON.stringify({candidates: [{content: {parts: [{text: 'Réponse factice.'}]}, finishReason: 'STOP'}], usageMetadata: {promptTokenCount: 100, candidatesTokenCount: 3}})}\n\n`;
+    return new Response(sse, {status: 200, headers: {'Content-Type': 'text/event-stream'}});
+  };
+  // Ce que le modèle de réponse a reçu : textes, images (décodées : « plein-B »...) et leur résolution.
+  const recu = () => {
+    const parts = requetes.at(-1)?.corps.contents.at(-1).parts || [];
+    return {textes: parts.filter(p => p.text).map(p => p.text), images: parts.filter(p => p.inline_data).map(p => `${Buffer.from(p.inline_data.data, 'base64')}@${p.mediaResolution?.level?.replace('MEDIA_RESOLUTION_', '')}`)};
+  };
+  const copiloteAvec = aide => creerCopiloteJeu({root: racine, env: {GEMINI_API_KEY: 'cle-factice'}, aide, journal: silencieux, reglagesRegard: {periode: 60, periodeCourte: 40}});
+  const question = async (c, texte = 'Je te montre ça, tu vois ?') => { const ev = []; for await (const e of c.poser({texte, voix: false})) ev.push(e); return ev; };
+  const A = scene('A', fond()), B = scene('B', bulle(1), {immobileMs: 650});
+  try {
+    // 1. Info-bulle qui apparaît au milieu de la question puis disparaît : elle est choisie et datée, la fin (= début) n'est pas doublée.
+    let aide = aideScenes(A), c = copiloteAvec(aide);
+    await c.precapturer('essai-1');
+    await pause(200); aide.courante = B;
+    await pause(150); aide.courante = {...B, immobileMs: 1300};
+    await pause(150); aide.courante = A;
+    await pause(200);
+    let ev = await question(c), r = recu();
+    const libelle2 = r.textes.find(t => t.startsWith('Image 2/2')) || '';
+    verifier('info-bulle au milieu de la question → choisie et datée', ev.at(-1)?.type === 'fin' && JSON.stringify(r.images) === JSON.stringify(['plein-A@HIGH', 'zoom-A@HIGH', 'plein-B@HIGH', 'zoom-B@HIGH'])
+      && /^Image 1\/2, quand il a appuyé pour parler/.test(r.textes.find(t => t.startsWith('Image 1/2')) || '') && /s après le début de sa question ; souris immobile depuis 1,3 s/.test(libelle2)
+      // Rien d'affirmé sur l'info-bulle : elle a PU s'ouvrir (la carte n'en a pas).
+      && libelle2.includes('(si l\'élément survolé a une info-bulle, elle a eu le temps de s\'ouvrir)')
+      && r.textes.some(t => t.startsWith('Voici 2 captures') && t.includes('MONTRER') && !t.includes('immobile sur une info-bulle')), `${r.images.join(' ')} | « ${libelle2} »`);
+    let j = (await journalDe(racine)).at(-1);
+    verifier('journal : images envoyées et résumé du regard', j.images === 4 && j.regard?.choisies?.length === 2 && j.regard.gardees === 3 && j.regard.apercus >= 8, JSON.stringify({images: j.images, regard: j.regard}));
+
+    // 2. Écran identique toute la question : une seule image, textes d'avant mot pour mot.
+    aide = aideScenes(A); c = copiloteAvec(aide);
+    await c.precapturer('essai-2');
+    await pause(400);
+    ev = await question(c); r = recu();
+    verifier('écran inchangé → 1 image + zoom, textes d\'avant', JSON.stringify(r.images) === JSON.stringify(['plein-A@HIGH', 'zoom-A@HIGH']) && aide.appels.jeton === 0
+      && r.textes[0].startsWith('Capture de la fenêtre de Crusader Kings III prise quand il a appuyé pour poser sa question (1920×1080) :'), `${r.images.join(' ')} ; ${aide.appels.apercu} aperçus, ${aide.appels.jeton} encodage(s)`);
+
+    // 3. Annulation par la page (route HTTP, id de l'appui) : plus aucun aperçu, aperçu de l'aide libéré, la question suivante
+    //    (sans appui) repart d'une capture neuve.
+    aide = aideScenes(B); c = copiloteAvec(aide);
+    const serveur = http.createServer(async (req, res) => { const url = new URL(req.url, 'http://127.0.0.1'); if (!(await c.route(url, req, res))) { res.writeHead(404); res.end(); } });
+    await new Promise(ok => serveur.listen(0, '127.0.0.1', ok));
+    const base = `http://127.0.0.1:${serveur.address().port}`;
+    const cap = await vraiFetch(`${base}/api/jeu/capturer?regard=page-3`, {method: 'POST'}).then(x => x.json());
+    await pause(250);
+    const autre = await vraiFetch(`${base}/api/jeu/regard/arret?regard=autre-appui`, {method: 'POST'}).then(x => x.json());
+    const apercusAvant = aide.appels.apercu;
+    await pause(100);
+    const continue_ = aide.appels.apercu > apercusAvant;
+    const arret = await vraiFetch(`${base}/api/jeu/regard/arret?regard=page-3`, {method: 'POST'}).then(x => x.json());
+    const n0 = aide.appels.apercu;
+    await pause(400);
+    serveur.close();
+    aide.courante = A;
+    ev = await question(c); r = recu();
+    verifier('annulation : le regard s\'arrête (et pas sur l\'id d\'un autre appui), la question suivante capture à neuf', cap.ok && autre.arrete === false && continue_ && arret.arrete === true
+      && aide.appels.apercu === n0 && aide.appels.liberer >= 1 && JSON.stringify(r.images) === JSON.stringify(['plein-A@HIGH', 'zoom-A@HIGH']) && r.textes[0].includes('prise au moment de la question'),
+      `${n0} aperçus à l'arrêt, ${aide.appels.apercu} 400 ms plus tard, libérations ${aide.appels.liberer} ; ${r.images.join(' ')}`);
+
+    // 4. Vues d'un appui précédent jamais utilisées : appui 1 sur une info-bulle, nouvel appui sur un écran sans elle.
+    aide = aideScenes(B); c = copiloteAvec(aide);
+    await c.precapturer('appui-1');
+    await pause(200);
+    aide.courante = A;
+    await c.precapturer('appui-2');
+    await pause(200);
+    const vieux = c.arreterRegard('appui-1');
+    await pause(150);
+    ev = await question(c); r = recu();
+    verifier('vues d\'avant l\'appui jamais utilisées', vieux === false && !r.images.some(i => i.includes('-B')) && JSON.stringify(r.images) === JSON.stringify(['plein-A@HIGH', 'zoom-A@HIGH']), r.images.join(' '));
+
+    // 5. CK3 quitté pendant la question (autre appli au premier plan) : rien n'est encodé.
+    aide = aideScenes(A); c = copiloteAvec(aide);
+    await c.precapturer('essai-5');
+    await pause(80); aide.courante = {...B, devant: false};
+    await pause(300);
+    ev = await question(c); r = recu(); j = (await journalDe(racine)).at(-1);
+    verifier('CK3 pas au premier plan → aucune image prise', aide.appels.jeton === 0 && r.images.length === 2 && j.regard.horsJeu >= 3, `${j.regard.horsJeu} aperçus hors jeu, ${aide.appels.jeton} encodage(s)`);
+
+    // 6. Six écrans différents : 4 vues au plus, la première est celle de l'appui ; à 3 vues ou plus, seule la principale part
+    //    entière en haute résolution, les zooms toujours.
+    aide = aideScenes(A); c = copiloteAvec(aide);
+    await c.precapturer('essai-6');
+    for (let k = 2; k <= 7; k++) { await pause(130); aide.courante = scene(`C${k}`, bulle(k), {immobileMs: k === 4 ? 900 : 100}); }
+    await pause(150);
+    ev = await question(c); r = recu(); j = (await journalDe(racine)).at(-1);
+    const pleins = r.images.filter(i => i.startsWith('plein-')), hautes = pleins.filter(i => i.endsWith('@HIGH'));
+    verifier('6 écrans → 4 vues au plus, appui en premier, une seule vue entière en haute résolution', pleins.length === 4 && pleins[0].startsWith('plein-A') && hautes.length === 1
+      && r.images.filter(i => i.startsWith('zoom-')).every(i => i.endsWith('@HIGH')) && pleins.some(i => i.startsWith('plein-C4')), `${r.images.join(' ')} ; gardées ${j.regard.gardees}`);
+
+    // 7. CK3 fermé pendant la question : le regard s'arrête, la question part avec les vues déjà prises.
+    aide = aideScenes(A); c = copiloteAvec(aide);
+    await c.precapturer('essai-7');
+    await pause(150); aide.courante = B;
+    await pause(150); aide.courante = {erreur: 'CK3 n\'est pas lancé', code: 'pas-lance'};
+    await pause(150);
+    const nFerme = aide.appels.apercu;
+    await pause(200);
+    ev = await question(c); r = recu();
+    verifier('CK3 fermé en route : regard arrêté, vues gardées envoyées', aide.appels.apercu === nFerme && ev.at(-1)?.type === 'fin' && r.images.includes('plein-B@HIGH'), `${r.images.join(' ')}`);
+
+    // 7 bis. CK3 réduit un instant (Alt+Tab) puis de retour : le regard attend et reprend.
+    aide = aideScenes(A); c = copiloteAvec(aide);
+    await c.precapturer('essai-7b');
+    await pause(100); aide.courante = {erreur: 'CK3 est réduit', code: 'reduit'};
+    await pause(250); aide.courante = B;
+    await pause(250);
+    ev = await question(c); r = recu(); j = (await journalDe(racine)).at(-1);
+    verifier('CK3 réduit un instant : le regard reprend à son retour', r.images.includes('plein-B@HIGH') && j.regard.horsJeu >= 2, `${r.images.join(' ')} ; ${j.regard.horsJeu} aperçus hors jeu`);
+
+    // 8. Fausse aide sans aperçu (version antérieure) : la capture de l'appui seule, comme avant.
+    const ancienne = {async etat() { return {ck3: true}; }, async capturer() { return {plein: Buffer.from('plein-ancienne'), zoom: null, largeur: 1920, hauteur: 1080, ms: 1}; }};
+    c = copiloteAvec(ancienne);
+    await c.precapturer('essai-8');
+    await pause(150);
+    ev = await question(c); r = recu();
+    verifier('aide sans aperçu → capture de l\'appui seule', JSON.stringify(r.images) === JSON.stringify(['plein-ancienne@HIGH']) && r.textes[0].includes('quand il a appuyé'), r.images.join(' '));
+
+    // 8 bis. Question arrivée avant la capture de l'appui (aide lente) : cette capture est attendue et utilisée.
+    aide = aideScenes(A);
+    const capturerLent = aide.capturer;
+    aide.capturer = async o => { await pause(200); return capturerLent(o); };
+    c = copiloteAvec(aide);
+    c.precapturer('essai-8b').catch(() => {});
+    ev = await question(c); r = recu();
+    verifier('question avant la fin de la capture de l\'appui → elle est attendue', JSON.stringify(r.images) === JSON.stringify(['plein-A@HIGH', 'zoom-A@HIGH']) && r.textes[0].includes('quand il a appuyé')
+      && aide.appels.capturer === 1, `${r.images.join(' ')} ; ${aide.appels.capturer} capture(s)`);
+
+    // 10. Info-bulle survolée AVANT l'appui (souris immobile 1,5 s, suivie en permanence par l'aide), puis souris déplacée pour
+    //     montrer autre chose : l'image de l'appui est annoncée immobile et reste la principale (haute résolution).
+    const ailleurs = (nom, sig, imm, x) => scene(nom, sig, {immobileMs: imm, curseur: {x, y: x}});
+    const panneau = bulle(5).map((x, i) => i < 200 ? 30 : x);
+    aide = aideScenes(scene('T', bulle(1), {immobileMs: 1500})); c = copiloteAvec(aide);
+    await c.precapturer('essai-10');
+    await pause(30); aide.courante = ailleurs('M', fond(), 100, 300);
+    await pause(200); aide.courante = ailleurs('P', panneau, 900, 600);
+    await pause(200);
+    ev = await question(c); r = recu();
+    const libelleAppui = r.textes.find(t => t.startsWith('Image 1/')) || '';
+    verifier('info-bulle survolée avant l\'appui → image de l\'appui immobile et principale', ev.at(-1)?.type === 'fin'
+      && /^Image 1\/3, quand il a appuyé pour parler \(début de sa question\) ; souris immobile depuis 1,5 s en x=900, y=500 \(si l'élément survolé a une info-bulle/.test(libelleAppui)
+      && r.images[0] === 'plein-T@HIGH' && r.images.filter(i => i.startsWith('plein-') && i.endsWith('@HIGH')).length === 1, `« ${libelleAppui} » ; ${r.images.join(' ')}`);
+
+    // 10 bis. Immobilité inconnue (aide qui vient de démarrer : -1) : la place de la souris seulement, jamais « en mouvement » ;
+    //         en anglais aussi.
+    aide = aideScenes(scene('U', bulle(1), {immobileMs: -1})); c = copiloteAvec(aide);
+    await c.precapturer('essai-10b');
+    await pause(30); aide.courante = ailleurs('M', fond(), 100, 300);
+    await pause(200);
+    ev = []; for await (const e of c.poser({texte: 'Look, I\'m showing you this', voix: false, langue: 'en'})) ev.push(e);
+    r = recu();
+    const libelleInconnu = r.textes.find(t => t.startsWith('Image 1/')) || '';
+    verifier('immobilité inconnue → « mouse at x=…, y=… », sans « moving »', libelleInconnu === 'Image 1/2, when they pressed the key to speak (start of their question); mouse at x=900, y=500 (1920×1080):'
+      && r.images[0] === 'plein-U@HIGH', `« ${libelleInconnu} »`);
+
+    // 11. Impressions lentes (150 ms : jeu chargé, carte graphique saturée) : aperçus deux fois plus espacés, arrêt après trois
+    //     lents de suite (capture de l'appui comprise), durée max notée au journal.
+    aide = aideScenes(scene('L', fond(), {msImpression: 150})); c = copiloteAvec(aide);
+    await c.precapturer('essai-11');
+    await pause(700);
+    const nLents = aide.appels.apercu, ecarts = aide.quand.slice(1).map((x, i) => x - aide.quand[i]);
+    await pause(300);
+    ev = await question(c); j = (await journalDe(racine)).at(-1);
+    verifier('impressions lentes → rythme divisé par deux, arrêt après 3 lentes', nLents === 2 && aide.appels.apercu === 2 && ecarts.every(e => e >= 110)
+      && j.regard?.lents === 3 && j.regard.arretLent === true && j.regard.impressionMaxMs === 150 && ev.at(-1)?.type === 'fin',
+      `${nLents} aperçus en 700 ms (écarts ${ecarts.join(', ')} ms), ${aide.appels.apercu} au total ; journal ${JSON.stringify(j.regard)}`);
+
+    // 12. Question refusée avant la capture (son muet) : le regard de l'appui s'arrête aussitôt, et la question écrite suivante,
+    //     sans appui, ne reprend pas ses vues.
+    const wavMuet = wav16(Buffer.alloc(16000 * 2)).toString('base64');   // 1 s de silence
+    aide = aideScenes(A); c = copiloteAvec(aide);
+    await c.precapturer('essai-12');
+    await pause(150);
+    ev = []; for await (const e of c.poser({audio: wavMuet, voix: false})) ev.push(e);
+    const nMuet = aide.appels.apercu;
+    await pause(300);
+    const apresMuet = aide.appels.apercu - nMuet;
+    aide.courante = B;
+    await question(c, 'question écrite'); r = recu();
+    verifier('son muet → regard arrêté, la question écrite suivante capture à neuf', ev.at(-1)?.type === 'erreur' && ev.at(-1).message === 'Je n’ai rien entendu.' && apresMuet === 0
+      && aide.appels.liberer >= 1 && JSON.stringify(r.images) === JSON.stringify(['plein-B@HIGH', 'zoom-B@HIGH']) && r.textes[0].includes('prise au moment de la question'),
+      `« ${ev.at(-1)?.message} », ${apresMuet} aperçu(s) dans les 300 ms suivantes ; question suivante : ${r.images.join(' ')}`);
+
+    // 13. Capture de l'appui ratée (capture noire un instant) : celle faite à l'arrivée de la question est datée « pendant qu'il
+    //     posait sa question », pas « quand il a appuyé ».
+    aide = aideScenes({erreur: 'Capture noire', code: 'noire'}); c = copiloteAvec(aide);
+    c.precapturer('essai-13').catch(() => {});
+    await pause(250);
+    aide.courante = A;
+    ev = await question(c); r = recu();
+    verifier('capture de l\'appui ratée → capture de secours datée de la question', ev.at(-1)?.type === 'fin' && JSON.stringify(r.images) === JSON.stringify(['plein-A@HIGH', 'zoom-A@HIGH'])
+      && r.textes[0].startsWith('Capture de la fenêtre de Crusader Kings III prise pendant qu\'il posait sa question (1920×1080) :'), `« ${r.textes[0]} »`);
+
+    // 9. Choix pur : plafond, diversité.
+    const v = (t, sig, extra = {}) => ({t, plein: Buffer.from('x'), signature: sig, vuJusqua: t, ...extra});
+    const choix = choisirVues([v(0, fond()), v(800, bulle(2), {vuJusqua: 2400, immobileMs: 1500}), v(1600, bulle(3)), v(2400, fond())]);
+    verifier('choisirVues : la vue tenue et immobile est principale, la fin égale au début n\'est pas doublée', choix.images.length === 3 && choix.images[choix.principale].t === 800,
+      `${choix.images.map(i => i.t).join(', ')} ; principale ${choix.images[choix.principale].t}`);
+  } finally { globalThis.fetch = vraiFetch; await rm(racine, {recursive: true, force: true}).catch(() => {}); }
+  console.log(`Regard : ${resultats.filter(Boolean).length}/${resultats.length} vérifications réussies`);
+  if (resultats.some(x => !x)) process.exitCode = 1;
+}
+
+if (ETAPES.includes('regard-reel')) {
+  // Vraie aide (sans crochet clavier : aucune touche interceptée), vrai CK3 : 6 s de regard pendant qu'Ameur joue, puis UNE
+  // question écrite à Gemini (sans voix). Aucune image n'est écrite ailleurs que dans la racine temporaire (capture de dépannage).
+  console.log('\n=== Regard réel sur CK3 (6 s), une question à Gemini ===');
+  const {creerAideWindows} = await import(pathToFileURL(path.join(ICI, '..', 'aide-windows.mjs')));
+  const aide = creerAideWindows({journal: {log() {}, warn() {}, error: m => console.log('aide :', m)}, crochet: false});
+  await aide.demarrer();
+  const racine = await racineTemporaire();
+  const appels = {apercu: 0, encodages: 0, msApercu: [], msEncodage: []};
+  const espion = Object.assign(Object.create(aide), {
+    etat: () => aide.etat(), liberer: () => aide.liberer(),
+    capturer: async o => { const c = await aide.capturer(o); if (o?.jeton) { appels.encodages++; appels.msEncodage.push(c.msAide); } return c; },
+    apercu: async () => { const a = await aide.apercu(); appels.apercu++; appels.msApercu.push(a.msImpression ?? a.msAide); return a; },
+  });
+  const c = creerCopiloteJeu({root: racine, env, aide: espion, journal: {log() {}, warn() {}, error: (...m) => console.log(...m)}});
+  try {
+    const premiere = await c.precapturer('essai-reel');
+    console.log(`Capture de l'appui : ${premiere.largeur}x${premiere.hauteur}, ${premiere.ms} ms, curseur ${premiere.curseur ? `${premiere.curseur.x},${premiere.curseur.y}` : 'hors jeu'}`);
+    await new Promise(r => setTimeout(r, 6000));
+    // --parle : la question parlée d'essai (WAV) avec la voix, pour mesurer le coût complet d'une question à voix haute.
+    const options = process.argv.includes('--parle') ? {audio: (await questionParlee()).toString('base64'), voix: true}
+      : {texte: arg('question') || 'Je te montre des choses pendant que je parle : qu\'est-ce que je survolais ou ouvrais, et à quel moment ?', voix: false};
+    const r = await poser(c, 'regard réel', options);
+    total += r.fin?.coutCents || 0;
+    const j = (await journalDe(racine)).at(-1);
+    const moy = l => l.length ? Math.round(l.reduce((s, x) => s + x, 0) / l.length) : '-';
+    console.log(`Aperçus : ${appels.apercu} en ~6 s (impression ${moy(appels.msApercu)} ms en moyenne, max ${Math.max(0, ...appels.msApercu)}), encodages ${appels.encodages} (${moy(appels.msEncodage)} ms)`);
+    console.log('Regard :', JSON.stringify(j.regard), '| images envoyées :', j.images, '| jetons :', JSON.stringify(j.jetons), '| coût', j.coutCents, 'cent(s)');
+  } finally { await aide.arreter(); await rm(racine, {recursive: true, force: true}).catch(() => {}); }
 }
 
 console.log(`\nCoût estimé de cet essai : ${total.toFixed(2)} cent(s) US`);

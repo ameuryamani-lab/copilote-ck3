@@ -1,5 +1,6 @@
 // Aide Windows du copilote CK3 vue de Node : un seul PowerShell (aide-windows.ps1) lancé une fois et questionné en lignes JSON.
 // Il capture la seule fenêtre de CK3 (en mémoire, jamais sur le disque) et signale Ctrl+Maj+Espace grâce à un crochet clavier.
+// Pendant une question, le cerveau le fait regarder le jeu par des aperçus légers (apercu : empreinte + souris, sans JPEG).
 // Il n'envoie jamais ni touche ni clic. S'il tombe, il est relancé (3 fois par minute au plus), puis déclaré en panne ('erreur') ;
 // une demande faite plus d'une minute après la panne (ou un nouveau demarrer()) le relance.
 import {spawn} from 'node:child_process';
@@ -11,13 +12,16 @@ const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'aide-win
 // L'aide ne renvoie que des codes ASCII (PowerShell 5.1 lit mal les accents) : les phrases pour Ameur sont ici.
 const MESSAGES = {
   'pas-lance': 'CK3 n\'est pas lancé', reduit: 'CK3 est réduit', noire: 'Capture noire', 'ne-repond-pas': 'CK3 ne répond pas',
-  'trop-petite': 'La fenêtre de CK3 est trop petite', echec: 'Capture de CK3 impossible',
+  'trop-petite': 'La fenêtre de CK3 est trop petite', echec: 'Capture de CK3 impossible', perimee: 'Aperçu de CK3 périmé',
 };
 // Délais de réponse, comptés à partir du moment où l'aide COMMENCE la commande (elle les traite une par une) : au-delà, son fil
 // de travail est bloqué (PrintWindow sur un CK3 figé...) et on la relance. Une commande qui attend son tour plus longtemps que
 // son délai est seulement abandonnée : l'état demandé derrière une capture lente ne doit pas tuer l'aide (et la capture).
-const DELAIS = {etat: 5000, capturer: 15000, diagnostic: 5000, banc: 20000, reinstaller: 5000};
+const DELAIS = {etat: 5000, capturer: 15000, apercu: 15000, liberer: 5000, diagnostic: 5000, banc: 20000, reinstaller: 5000};
+const IMPRESSIONS = ['capturer', 'apercu'];   // commandes qui impriment CK3 (PrintWindow) et peuvent donc prendre du temps
 const MAX_RELANCES = 3;   // par minute
+// Immobilité de la souris : -1 de l'aide (on l'ignore encore) devient null, pour que personne ne la prenne pour un mouvement.
+const immobile = ms => Number.isFinite(ms) && ms >= 0 ? ms : null;
 const NOUVEL_ESSAI_MS = 60000;   // après une panne, nouvel essai au plus tôt une minute plus tard
 
 // processus, crochet et script ne servent qu'aux essais (faux nom de processus, aide sans crochet, script cassé).
@@ -167,16 +171,31 @@ export function creerAideWindows({journal = console, processus = 'ck3', crochet 
   // {ck3, hwnd, rect, minimise, premierPlan, ecran:{w,h}} (+ repond, pid quand CK3 tourne).
   const etat = () => requete('etat');
 
-  // Capture de la fenêtre CK3 : JPEG entier (1920 de large au plus) + zoom natif ~960x600 autour du curseur s'il est sur le jeu.
+  // Capture de la fenêtre CK3 : JPEG entier (1920 de large au plus) + zoom natif ~960x600 autour du curseur s'il est sur le jeu,
+  // empreinte (576 octets : gris moyen d'une grille 32x18) et depuis quand la souris est immobile (immobileMs ; null si l'aide
+// l'ignore encore : suivi de la souris commencé il y a moins de 0,5 s sans mouvement vu), durée du PrintWindow (msImpression).
+  // options.jeton : encode l'aperçu gardé par l'aide (apercu()) au lieu d'imprimer CK3 à nouveau ; code 'perimee' s'il n'y est plus.
   // Erreurs : « CK3 n'est pas lancé », « CK3 est réduit », « Capture noire », « CK3 ne répond pas » (err.code garde le code brut).
   async function capturer(options = {}) {
     const t0 = Date.now();
     const params = {};
-    for (const cle of ['qualite', 'largeurMax', 'zoomL', 'zoomH']) if (Number.isFinite(options[cle])) params[cle] = Math.round(options[cle]);
+    for (const cle of ['qualite', 'largeurMax', 'zoomL', 'zoomH', 'jeton']) if (Number.isFinite(options[cle])) params[cle] = Math.round(options[cle]);
     const r = await requete('capturer', params);
     return {plein: Buffer.from(r.plein, 'base64'), zoom: r.zoom ? Buffer.from(r.zoom, 'base64') : null, curseur: r.curseur || null,
-      zoneZoom: r.zoneZoom || null, largeur: r.largeur, hauteur: r.hauteur, ecartType: r.ecartType, moyenne: r.moyenne,
-      premierPlan: r.premierPlan, ms: Date.now() - t0, msAide: r.ms};
+      curseurSurJeu: !!r.curseurSurJeu, zoneZoom: r.zoneZoom || null, largeur: r.largeur, hauteur: r.hauteur,
+      largeurFenetre: r.largeurFenetre, hauteurFenetre: r.hauteurFenetre, ecartType: r.ecartType, moyenne: r.moyenne,
+      signature: r.signature ? Buffer.from(r.signature, 'base64') : null, immobileMs: immobile(r.immobileMs),
+      premierPlan: r.premierPlan, ms: Date.now() - t0, msAide: r.ms, msImpression: r.msImpression ?? null};
+  }
+
+  // Aperçu léger (regard pendant une question) : CK3 imprimé SANS encodage, l'image reste dans l'aide (jeton) ; rend l'empreinte,
+  // la souris et immobileMs. CK3 pas au premier plan : {premierPlan: false}, rien n'est imprimé.
+  async function apercu() {
+    const t0 = Date.now();
+    const r = await requete('apercu');
+    return {premierPlan: !!r.premierPlan, signature: r.signature ? Buffer.from(r.signature, 'base64') : null, curseur: r.curseur || null,
+      curseurSurJeu: !!r.curseurSurJeu, immobileMs: immobile(r.immobileMs), jeton: r.jeton ?? null,
+      largeurFenetre: r.largeurFenetre ?? null, hauteurFenetre: r.hauteurFenetre ?? null, ms: Date.now() - t0, msAide: r.ms, msImpression: r.msImpression};
   }
 
   async function arreter() {
@@ -195,7 +214,8 @@ export function creerAideWindows({journal = console, processus = 'ck3', crochet 
   }
 
   Object.assign(aide, {
-    demarrer, etat, capturer, arreter,
+    demarrer, etat, capturer, apercu, arreter,
+    liberer: () => requete('liberer'),         // oublie l'aperçu gardé (fin du regard)
     diagnostic: () => requete('diagnostic'),   // état du crochet : installé, appels, durée max du rappel (µs)
     banc: () => requete('banc'),               // banc d'essai de la décision du raccourci, sans toucher au clavier
     reinstaller: () => requete('reinstaller'), // essai : réinstallation du crochet (faite seule toutes les 5 min)
@@ -203,7 +223,7 @@ export function creerAideWindows({journal = console, processus = 'ck3', crochet 
   Object.defineProperties(aide, {
     pid: {get: () => enfant?.pid ?? null},      // PowerShell en cours (pour les essais)
     info: {get: () => info},                   // sa ligne {pret, pid, crochet, erreurCrochet, dpiProcessus}
-    occupee: {get: () => file.some(r => r.cmd === 'capturer')},   // capture en cours : l'état attendrait derrière elle
+    occupee: {get: () => file.some(r => IMPRESSIONS.includes(r.cmd))},   // capture en cours : l'état attendrait derrière elle
   });
   return aide;
 }

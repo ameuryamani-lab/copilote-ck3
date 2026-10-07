@@ -1,6 +1,8 @@
 // Essai de l'aide Windows du copilote CK3. Lancer : node essais/essai-aide.mjs
 // Sans jamais envoyer de touche ni de clic, sans enregistrer ni envoyer aucune image (les captures restent en mémoire) :
-// 1. démarrage + crochet clavier installé ; 2. état de CK3 ; 3. cinq captures (durée, tailles, écart-type, zoom) ;
+// 1. démarrage + crochet clavier installé ; 2. état de CK3 ; 2 bis. suivi de la souris (immobilité inconnue au démarrage, jamais
+// remise à zéro par un aperçu) ; 3. cinq captures (durée, tailles, écart-type, zoom, empreinte) ;
+// 3 bis. aperçus légers du regard (durée, empreinte, souris immobile), encodage par jeton, jeton réutilisé refusé, libération ;
 // 4. décision du raccourci (banc, dont le combo hors de CK3 laissé à l'appli), réinstallation du crochet, coût du rappel sur les
 // vraies frappes ; 5. erreur « CK3 n'est pas lancé » (aide sans crochet, faux nom de processus) ; 5 bis. capture lente : l'état en
 // attente derrière elle ne tue plus l'aide ; 6. relance après un arrêt brutal ; 7. Node tué : l'aide part seule ;
@@ -60,11 +62,25 @@ async function principal() {
   pidsVus.add(aide.pid);
   noter('démarrage', info.pret && aide.pid, `${Date.now() - t} ms, PowerShell ${aide.pid}, DPI par écran : ${info.dpiProcessus ? 'oui' : 'non (fil seulement)'}`);
   noter('crochet clavier installé', info.crochet, info.crochet ? 'WH_KEYBOARD_LL actif sur son propre fil' : `erreur Windows ${info.erreurCrochet}`);
+  const souris1 = await aide.diagnostic(), tSouris1 = Date.now();
 
   // 2. État
   t = Date.now();
   const etat = await aide.etat();
   noter('état', typeof etat.ck3 === 'boolean' && etat.ecran?.w > 0, `${Date.now() - t} ms, ${JSON.stringify(etat)}`);
+
+  // 2 bis. Souris (suivie en permanence, lecture seule) : immobilité inconnue (-1) juste après le démarrage, sauf si la souris a
+  // bougé ; connue après 0,5 s ; et un aperçu (même refusé : CK3 absent) ne la remet plus à zéro, pour que l'info-bulle survolée
+  // AVANT l'appui compte. Si quelqu'un bouge la souris pendant l'essai, la dernière valeur est seulement plus petite que l'écart.
+  await pause(Math.max(0, 700 - (Date.now() - tSouris1)));
+  const souris2 = await aide.diagnostic(), tSouris2 = Date.now();
+  await aide.apercu().catch(() => null);
+  await pause(150);
+  const souris3 = await aide.diagnostic(), ecartSouris = Date.now() - tSouris2;
+  const bougee = souris3.immobileMs < ecartSouris;
+  noter('souris : immobilité inconnue au démarrage, connue ensuite, jamais remise à zéro par un aperçu',
+    (souris1.immobileMs === -1 || (souris1.immobileMs >= 0 && souris1.immobileMs < 500)) && souris2.immobileMs >= 0 && (bougee || souris3.immobileMs >= souris2.immobileMs + 100),
+    `juste après le démarrage ${souris1.immobileMs} ms, 0,7 s plus tard ${souris2.immobileMs} ms, après un aperçu ${souris3.immobileMs} ms${bougee ? ' (souris bougée entre-temps)' : ''}`);
 
   // 3. Cinq captures, en mémoire seulement
   if (etat.ck3 && !etat.minimise) {
@@ -73,13 +89,38 @@ async function principal() {
       let c = await aide.capturer();
       const dims = tailleJpeg(c.plein), dimsZoom = tailleJpeg(c.zoom);
       mesures.push({ms: c.ms, msAide: c.msAide, ko: Math.round(c.plein.length / 1024), dims: dims && `${dims.w}x${dims.h}`, annonce: `${c.largeur}x${c.hauteur}`,
-        ecartType: c.ecartType, zoom: dimsZoom ? `${dimsZoom.w}x${dimsZoom.h} (${Math.round(c.zoom.length / 1024)} Ko)` : null, curseur: c.curseur, premierPlan: c.premierPlan});
+        ecartType: c.ecartType, zoom: dimsZoom ? `${dimsZoom.w}x${dimsZoom.h} (${Math.round(c.zoom.length / 1024)} Ko)` : null, curseur: c.curseur, premierPlan: c.premierPlan,
+        signature: c.signature?.length ?? null});
       c = null;   // l'image n'est ni gardée ni écrite
       await pause(150);
     }
-    const bonnes = mesures.every(m => m.dims && m.dims === m.annonce && m.ecartType >= 2 && m.ms < 2000 && m.ko > 10);
+    const bonnes = mesures.every(m => m.dims && m.dims === m.annonce && m.ecartType >= 2 && m.ms < 2000 && m.ko > 10 && m.signature === 576);
     const msMoy = Math.round(mesures.reduce((s, m) => s + m.ms, 0) / mesures.length);
-    noter('5 captures de CK3', bonnes, `moyenne ${msMoy} ms aller-retour ; ${mesures.map(m => `${m.ms} ms (aide ${m.msAide}) ${m.dims} ${m.ko} Ko écart-type ${m.ecartType} zoom ${m.zoom || 'aucun'} curseur ${m.curseur ? m.curseur.x + ',' + m.curseur.y : 'hors jeu'}`).join(' | ')}`);
+    noter('5 captures de CK3', bonnes, `moyenne ${msMoy} ms aller-retour ; ${mesures.map(m => `${m.ms} ms (aide ${m.msAide}) ${m.dims} ${m.ko} Ko écart-type ${m.ecartType} zoom ${m.zoom || 'aucun'} curseur ${m.curseur ? m.curseur.x + ',' + m.curseur.y : 'hors jeu'} empreinte ${m.signature ?? 'ABSENTE'} o`).join(' | ')}`);
+
+    // 3 bis. Regard pendant une question (07/10/2026) : aperçus légers (impression + empreinte, sans JPEG), puis encodage de
+    // l'aperçu gardé par son jeton (même empreinte, sans second PrintWindow), jeton réutilisé refusé, aperçu libéré.
+    const apercus = [];
+    for (let i = 0; i < 6; i++) {
+      t = Date.now();
+      const a = await aide.apercu();
+      apercus.push({...a, rt: Date.now() - t});
+      await pause(700);   // rythme du regard : ≤ 1,5 aperçu par seconde
+    }
+    const devant = apercus.filter(a => a.premierPlan);
+    if (devant.length) {
+      const a = await aide.apercu();
+      t = Date.now();
+      const k = await aide.capturer({jeton: a.jeton, qualite: 75}).catch(e => ({erreur: e.code || e.message}));
+      const msEnc = Date.now() - t;
+      const reutilise = await aide.capturer({jeton: a.jeton}).then(() => 'acceptée', e => e.code);
+      await aide.apercu();
+      const libere = await aide.liberer();
+      const moy = l => Math.round(l.reduce((s, x) => s + x, 0) / l.length);
+      noter('aperçus légers et encodage par jeton', devant.every(x => x.signature?.length === 576 && x.rt < 1000) && !k.erreur && k.signature?.equals(a.signature) && reutilise === 'perimee' && libere.libere === true,
+        `${devant.length}/6 aperçus avec CK3 devant : ${moy(devant.map(x => x.rt))} ms aller-retour en moyenne (impression ${moy(devant.map(x => x.msImpression))} ms, max ${Math.max(...devant.map(x => x.rt))}), `
+        + `souris immobile ${devant.map(x => x.immobileMs).join('/')} ms ; encodage du jeton ${k.erreur || `${msEnc} ms aller-retour (aide ${k.msAide} ms), ${Math.round(k.plein.length / 1024)} Ko + zoom ${k.zoom ? Math.round(k.zoom.length / 1024) + ' Ko' : 'aucun'}, même empreinte : ${k.signature?.equals(a.signature) ? 'oui' : 'NON'}`} ; jeton réutilisé → ${reutilise} ; libéré : ${libere.libere}`);
+    } else noter('aperçus légers et encodage par jeton', apercus.every(a => !a.premierPlan && !a.signature), 'CK3 n\'est pas au premier plan : rien n\'est imprimé (vérifié), encodage non essayé');
   } else {
     noter('5 captures de CK3', false, etat.ck3 ? 'CK3 est réduit : captures non faites' : 'CK3 ne tourne pas : captures non faites');
   }

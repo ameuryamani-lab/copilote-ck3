@@ -166,8 +166,19 @@
 
   // ---------- Écoute : appui court ou clic = bascule (arrêt au silence), touche tenue plus de 600 ms = parler en maintenant ----------
   let micro = null, mode = null, tAppui = 0, enArret = false;
+  // Regard (07/10/2026) : de l'appui jusqu'à la question, le serveur continue de regarder le jeu (Ameur montre en parlant). Une
+  // écoute abandonnée l'arrête tout de suite, sinon il regarderait jusqu'à 40 s pour rien ; l'identifiant de l'appui évite
+  // d'arrêter celui d'un appui plus récent.
+  let regardId = null;
+  function arreterRegard() {
+    if (!regardId) return;
+    const id = regardId;
+    regardId = null;
+    fetch(`/api/jeu/regard/arret?regard=${encodeURIComponent(id)}`, {method: 'POST'}).catch(() => {});
+  }
 
   function annulerQuestion() {
+    arreterRegard();
     generation++;
     controleur?.abort(); controleur = null;
     clearInterval(surveillance); surveillance = null;
@@ -184,10 +195,12 @@
     changerEtat('ecoute'); statut(T.ecoute); attente(T.ecoute);
     if (DEMO) { simulerEcoute(g); return; }
     signalerEcoute(true);
-    // Image du jeu prise dès l'appui (ce qu'Ameur survolait à cet instant) : le serveur la garde en mémoire pour la question.
+    // Image du jeu prise dès l'appui (ce qu'Ameur survolait à cet instant), puis regard jusqu'à la question : le serveur garde
+    // les vues en mémoire pour la question.
     // CK3 fermé ou réduit : aucune réponse possible, le micro se referme aussitôt (rien n'est enregistré ni envoyé).
     // bloquant vient du serveur (code de l'aide) ; la phrase française sert encore si le serveur est d'une version antérieure.
-    fetch(`/api/jeu/capturer?langue=${langue}`, {method: 'POST'}).then(r => r.json()).then(j => {
+    regardId = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    fetch(`/api/jeu/capturer?langue=${langue}&regard=${regardId}`, {method: 'POST'}).then(r => r.json()).then(j => {
       const bloquant = j?.bloquant ?? /pas lancé|réduit/.test(j?.erreur || '');
       if (j?.ok || !bloquant || g !== generation || etat !== 'ecoute') return;
       annulerQuestion();
@@ -198,6 +211,7 @@
       if (micro !== m) return;
       micro = null; m.fermer().finally(() => signalerEcoute(false));
       console.warn(`Micro : ${e.name} : ${e.message}`);   // détail technique pour app.log seulement
+      arreterRegard();
       return erreurLocale(e.name === 'NotAllowedError' ? T.microBloque : e.name === 'NotFoundError' ? T.microAbsent : T.microMuet);
     }
     if (micro !== m || enArret || g !== generation) return;
@@ -225,8 +239,9 @@
     const pcm = m ? await m.fermer() : new Int16Array(0);
     if (!micro) signalerEcoute(false);
     if (g !== generation) return;
-    // Rien d'audible : on le dit tout de suite, sans appel payant.
-    if (abandon || pcm.length < 16000 * .35 || !m || m.maxNiveau < .01) return erreurLocale(T.rienEntendu, true);
+    // Rien d'audible : on le dit tout de suite, sans appel payant (et le regard s'arrête).
+    if (abandon || pcm.length < 16000 * .35 || !m || m.maxNiveau < .01) { arreterRegard(); return erreurLocale(T.rienEntendu, true); }
+    regardId = null;   // la question emporte le regard : le serveur choisit ses images à son arrivée
     envoyer({audio: enBase64(wav(pcm))});
   }
 

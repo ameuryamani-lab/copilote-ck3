@@ -224,7 +224,7 @@ FORM
 - Your answer is also read aloud: no table, no link or web address, no heading, no emoji, no formatting except bold and the numbered steps.
 
 WHAT YOU SEE
-- You receive a screenshot of the game window taken when the question was asked, and sometimes a zoom around the mouse cursor (what they are hovering). Use what is visible first: tooltip, greyed-out button, reason shown in red, numbers. Read small numbers carefully; if something is not readable, say so.
+- You receive a screenshot of the game window taken during the question, or several in order when the screen changed while they were speaking, and sometimes a zoom around the mouse cursor (what they are hovering). They talk to you like someone sitting next to them: when they say "look", "I'm showing you" or "this", they are hovering or opening what they mean; use the image where it shows, without describing the others. Use what is visible first: tooltip, greyed-out button, reason shown in red, numbers. Read small numbers carefully; if something is not readable, say so.
 - If the screen is not a game in progress (menu, loading, black screen), just say what you see.
 
 SOURCES AND VERSION
@@ -247,6 +247,205 @@ ${s?.notesVersion || ''}
 ${s?.fonctionsExtensions || ''}`.trim();
 }
 
+// ---- Regard pendant la question (07/10/2026) ----
+// Ameur parle au copilote comme à quelqu'un assis à côté de lui (« je te montre… ») : il survole, ouvre un panneau ou fait
+// défiler PENDANT qu'il parle, et les info-bulles de CK3 disparaissent dès que la souris bouge. L'image unique prise à l'appui ne
+// voyait donc pas ce qu'il montrait (« Je te montre justement la partie de legitimacy » : la capture n'avait que la carte).
+// De l'appui jusqu'à l'arrivée de la question, le copilote regarde la fenêtre du jeu par un aperçu léger de l'aide Windows
+// (empreinte grise 32x18 + souris, sans JPEG : ~20 ms), n'encode que les vues qui ont changé, les garde EN MÉMOIRE seulement,
+// puis en envoie au plus 4 au modèle.
+const REGARD = {
+  periode: 900, periodeCourte: 700,   // ≤ 1,5 aperçu par seconde ; plus tôt quand la souris vient de s'arrêter (info-bulle à venir)
+  dureeMax: 40e3,                     // l'écoute de la page s'arrête à 30 s
+  gardeesMax: 24,                     // ~0,33 Mo par vue : 8 Mo au pire
+  choisiesMax: 4,
+  // Case de l'empreinte « changée » : plus de 12 niveaux de gris sur 255. Mesuré sur CK3 le 07/10 : écran immobile 0 case,
+  // survol d'un comté ou info-bulle 8 à 20, panneau ouvert ou carte déplacée 150 et plus. Une vue est gardée dès 4 cases, mais
+  // n'est envoyée qu'à 6 cases d'écart avec les images déjà choisies (le jeu non en pause anime quelques cases).
+  niveau: 12, seuilCases: 4, seuilChoix: 6,
+  immobile: 500,                      // souris immobile depuis 0,5 s : une info-bulle a eu le temps de s'ouvrir
+  qualite: 75,                        // vues du regard un peu plus compressées (-25 %) : jusqu'à 4 images partent sur le réseau
+  erreursMax: 2,
+  // PrintWindow passe par le rendu du jeu : 17 à 29 ms mesurés sur CK3. Au-delà de 120 ms (jeu chargé, carte graphique saturée),
+  // les aperçus sont deux fois plus espacés ; trois lents de suite, le regard s'arrête (la question part avec les vues déjà prises).
+  lentMs: 120, lentsMax: 3,
+};
+// Immobilité de la souris inconnue (null : l'aide vient de démarrer) : ni « en mouvement » ni « immobile ».
+const immobileConnu = ms => Number.isFinite(ms) && ms >= 0 ? ms : null;
+
+// Nombre de cases de l'empreinte qui ont changé entre deux vues (empreinte absente : vue tenue pour différente).
+export function casesChangees(a, b) {
+  if (!a || !b || a.length !== b.length) return 576;
+  let n = 0;
+  for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > REGARD.niveau) n++;
+  return n;
+}
+// Combien de temps une vue a « tenu » : écran inchangé aux aperçus suivants, souris immobile (ms, chaque part plafonnée à 3 s).
+// Immobilité inconnue : comptée pour le seuil, sans la pénaliser ni la favoriser face à une vue où la souris bougeait.
+const tenue = (v, R = REGARD) => Math.min(3000, Math.max(0, (v.vuJusqua ?? v.t) - v.t)) + Math.min(3000, v.immobileMs ?? R.immobile);
+
+// Images envoyées au modèle (choisiesMax au plus) : la première (l'appui), la dernière (fin de la question) si l'écran a changé
+// depuis, et des vues intermédiaires parmi les plus différentes de celles déjà choisies, en préférant celles qui ont tenu et où la
+// souris était immobile (une info-bulle a pu s'ouvrir) plutôt qu'une image prise en plein mouvement. Écran inchangé : une image.
+// principale : la vue qui a le plus tenu (à égalité, la plus récente) ; elle seule part en haute résolution quand il y en a 3 ou 4.
+export function choisirVues(vues, R = REGARD) {
+  const liste = vues.filter(v => v?.plein?.length);
+  if (liste.length <= 1) return {images: liste, principale: 0};
+  const choisies = [liste[0]];
+  const loin = v => Math.min(...choisies.map(c => casesChangees(v.signature, c.signature)));
+  const derniere = liste.at(-1);
+  if (loin(derniere) >= R.seuilChoix) choisies.push(derniere);
+  const milieu = liste.slice(1, -1);
+  while (choisies.length < R.choisiesMax && milieu.length) {
+    let meilleure = -1, score = 0;
+    milieu.forEach((v, i) => {
+      const d = loin(v);
+      if (d < R.seuilChoix) return;
+      const s = (0.5 + Math.min(d, 40) / 40) * (0.25 + Math.min(3000, Math.max(0, (v.vuJusqua ?? v.t) - v.t)) / 1000 + ((v.immobileMs ?? 0) >= R.immobile ? 0.75 : 0));
+      if (s > score) { score = s; meilleure = i; }
+    });
+    if (meilleure < 0) break;
+    choisies.push(milieu.splice(meilleure, 1)[0]);
+  }
+  choisies.sort((a, b) => a.t - b.t);
+  let principale = 0;
+  choisies.forEach((v, i) => { if (tenue(v, R) >= tenue(choisies[principale], R)) principale = i; });
+  return {images: choisies, principale};
+}
+
+// Une session de regard, ouverte à l'appui (route /api/jeu/capturer) : première capture tout de suite, puis aperçus jusqu'à
+// finir() (la question arrive), abandonner() (Ameur annule, rien entendu, nouvel appui) ou dureeMax. Une aide sans apercu()
+// (fausses aides des essais, version antérieure) donne la seule capture de l'appui, comme avant.
+function creerRegard({aide, id = null, reglages = {}}) {
+  const R = {...REGARD, ...reglages};
+  const regarder = typeof aide.apercu === 'function';
+  const r = {id, t: Date.now(), vues: [], apercus: 0, horsJeu: 0, encodees: 0, erreurs: 0, fini: false, arrete: false, abandonne: false,
+    minuteur: null, tick: null, dernierApercu: 0, erreurPremiere: null, lents: 0, lentsTotal: 0, arretLent: false, impressionMax: 0};
+  // Durée d'impression de CK3 (ms) : rend vrai si elle est lente, et compte les lentes à la suite.
+  function mesurer(msImpression) {
+    const ms = Number(msImpression) || 0;
+    r.impressionMax = Math.max(r.impressionMax, ms);
+    const lent = ms > R.lentMs;
+    r.lents = lent ? r.lents + 1 : 0;
+    if (lent) r.lentsTotal++;
+    return lent;
+  }
+
+  function ajouter(v) {
+    r.vues.push(v);
+    if (r.vues.length <= R.gardeesMax) return;
+    // Plafond mémoire : on retire la vue intermédiaire la moins nouvelle par rapport à la précédente (diversité gardée).
+    let k = 1, min = Infinity;
+    for (let i = 1; i < r.vues.length - 1; i++) { const d = casesChangees(r.vues[i].signature, r.vues[i - 1].signature); if (d < min) { min = d; k = i; } }
+    r.vues.splice(k, 1);
+  }
+  const vue = (c, t, immobileMs) => ({t, plein: c.plein, zoom: c.zoom, curseur: c.curseur, curseurSurJeu: c.curseurSurJeu ?? !!c.zoom,
+    largeur: c.largeur, hauteur: c.hauteur, signature: c.signature || null, immobileMs: immobileConnu(immobileConnu(immobileMs) ?? c.immobileMs), vuJusqua: t});
+
+  function planifier(ms) {
+    if (r.arrete || r.fini) return;
+    clearTimeout(r.minuteur);
+    r.minuteur = setTimeout(() => { r.tick = regarderUneFois().finally(() => { r.tick = null; }); }, ms);
+    r.minuteur.unref?.();
+  }
+
+  // Un aperçu ; si l'écran a changé depuis la dernière vue gardée, l'aide encode cette même image (jeton) et on la garde.
+  async function regarderUneFois() {
+    if (r.arrete) return;
+    if (Date.now() - r.t > R.dureeMax) return arreter();
+    const tA = Date.now();
+    let a;
+    try { a = await aide.apercu(); } catch (e) {
+      // CK3 réduit ou figé un instant (Alt+Tab, chargement) : comme une autre appli devant, on attend qu'il revienne. Fermé, ou
+      // l'aide en panne deux fois de suite : le regard s'arrête.
+      const code = codeAide(e);
+      if (code === 'reduit' || code === 'ne-repond-pas') { r.horsJeu++; return planifier(R.periode); }
+      if (code === 'pas-lance' || ++r.erreurs >= R.erreursMax) return arreter();
+      return planifier(R.periode);
+    }
+    r.erreurs = 0; r.apercus++; r.dernierApercu = Date.now();
+    // CK3 pas devant : rien n'a été imprimé, msImpression est absent et ne compte pas comme rapide.
+    const lent = a.premierPlan && a.signature ? mesurer(a.msImpression) : false;
+    if (r.arrete) return;
+    const t = tA - r.t, immobileMs = immobileConnu(a.immobileMs);
+    if (!a.premierPlan || !a.signature) r.horsJeu++;   // CK3 pas devant : l'aide n'a rien imprimé
+    else {
+      const derniere = r.vues.at(-1);
+      if (derniere && casesChangees(a.signature, derniere.signature) < R.seuilCases) {
+        derniere.vuJusqua = t;   // même écran : la vue gardée dure
+        // Souris restée sur place depuis la vue gardée : elle y est immobile depuis plus longtemps.
+        if (immobileMs != null && derniere.curseur && a.curseur && Math.hypot(a.curseur.x - derniere.curseur.x, a.curseur.y - derniere.curseur.y) < 4)
+          derniere.immobileMs = Math.max(derniere.immobileMs ?? 0, immobileMs);
+      } else {
+        // L'impression est déjà payée : même lente, la vue nouvelle est encodée (6 à 9 ms dans l'aide, rien côté jeu).
+        try {
+          const c = await aide.capturer({jeton: a.jeton, qualite: R.qualite});
+          r.encodees++;
+          if (!r.arrete) ajouter(vue(c, t, immobileMs));
+        } catch (e) { if (codeAide(e) === 'pas-lance') return arreter(); }   // 'perimee'... : vue perdue, l'aperçu suivant la rattrape
+      }
+    }
+    if (r.lents >= R.lentsMax) { r.arretLent = true; return arreter(); }
+    planifier(lent ? 2 * R.periode : immobileMs != null && immobileMs < 400 ? R.periodeCourte : R.periode);
+  }
+
+  function arreter() {
+    if (r.arrete) return;
+    r.arrete = true;
+    clearTimeout(r.minuteur);
+    // L'aide garde le dernier aperçu en mémoire : on le lui fait oublier une fois l'aperçu en cours terminé.
+    if (regarder) Promise.resolve(r.tick).finally(() => aide.liberer?.().catch(() => {}));
+  }
+
+  r.premiere = aide.capturer();
+  // La capture de l'appui compte même si la question arrive avant elle ; seule une annulation la jette.
+  r.premiere.then(c => { if (!r.abandonne) r.vues.unshift(vue(c, 0)); planifier(mesurer(c.msImpression) ? 2 * R.periode : R.periode); },
+    e => { r.erreurPremiere = e; if (aideBloquante(e)) arreter(); else planifier(R.periode); });
+  if (!regarder) r.fini = true;   // pas d'aperçus : la capture de l'appui seule
+
+  return {
+    get id() { return r.id; }, get t() { return r.t; }, premiere: r.premiere,
+    // Question arrivée : l'aperçu en cours compte (600 ms au plus), un dernier regard si le précédent date (fin de phrase en
+    // tenant la touche), puis le choix. Rejette si aucune vue (capture de l'appui ratée) : l'appelant capture alors maintenant.
+    async finir() {
+      r.fini = true;
+      clearTimeout(r.minuteur);
+      if (r.tick) await Promise.race([r.tick, attendre(600)]);
+      if (regarder && !r.arrete && !r.tick && r.vues.length && Date.now() - r.dernierApercu > 300) await Promise.race([regarderUneFois(), attendre(600)]);
+      arreter();
+      await r.premiere.catch(() => null);
+      if (!r.vues.length) throw r.erreurPremiere || new Error('aucune vue');
+      const fin = Math.max(...r.vues.map(v => v.vuJusqua ?? v.t));
+      const choix = choisirVues(r.vues, R);
+      // impressionMaxMs : coût réel du regard sur le jeu, à surveiller sur une partie en cours (lents : impressions > 120 ms).
+      return {...choix, fin, resume: {apercus: r.apercus, horsJeu: r.horsJeu, gardees: r.vues.length, encodees: r.encodees, impressionMaxMs: r.impressionMax,
+        ...(r.lentsTotal ? {lents: r.lentsTotal} : {}), ...(r.arretLent ? {arretLent: true} : {})}};
+    },
+    // Annulation : plus aucun aperçu, et les vues gardées sont oubliées tout de suite.
+    abandonner() { r.abandonne = true; arreter(); r.vues = []; },
+    get actif() { return !r.arrete && !r.fini; },
+  };
+}
+
+// Textes qui accompagnent les images, dans la langue des consignes. s : secondes avec une décimale, virgule en français.
+function secondes(ms, en) { const s = (Math.max(0, ms) / 1000).toFixed(1); return en ? s : s.replace('.', ','); }
+function libelleVue(v, i, n, fin, en) {
+  const ou = v.curseur ? `x=${v.curseur.x}, y=${v.curseur.y}` : '';
+  const depuis = ms => ms >= 10e3 ? (en ? 'more than 10 s' : 'plus de 10 s') : `${secondes(ms, en)} s`;
+  // On ne dit que ce qu'on sait : immobilité inconnue, la place seulement ; immobile, une info-bulle a PU s'ouvrir (la carte ou un
+  // fond de panneau n'en ont pas : l'affirmer poussait le modèle à en chercher une).
+  const souris = !v.curseur ? '' : v.curseurSurJeu === false ? (en ? '; mouse outside the game' : ' ; souris hors du jeu')
+    : v.immobileMs == null ? (en ? `; mouse at ${ou}` : ` ; souris en ${ou}`)
+    : v.immobileMs >= REGARD.immobile
+      ? (en ? `; mouse still for ${depuis(v.immobileMs)} at ${ou} (if the hovered element has a tooltip, it had time to open)` : ` ; souris immobile depuis ${depuis(v.immobileMs)} en ${ou} (si l'élément survolé a une info-bulle, elle a eu le temps de s'ouvrir)`)
+      : (en ? `; mouse moving, at ${ou}` : ` ; souris en mouvement, en ${ou}`);
+  const jusquAuBout = i === n - 1 && (v.vuJusqua ?? v.t) >= fin - 50 && v.t > 0;
+  const quand = i === 0 && v.t === 0
+    ? (en ? `when they pressed the key to speak (start of their question)` : `quand il a appuyé pour parler (début de sa question)`)
+    : (en ? `${secondes(v.t, en)} s after the start of their question${jusquAuBout ? ', and still so at the end' : ''}` : `${secondes(v.t, en)} s après le début de sa question${jusquAuBout ? ', et encore ainsi à la fin' : ''}`);
+  return en ? `Image ${i + 1}/${n}, ${quand}${souris} (${v.largeur || '?'}×${v.hauteur || '?'}):` : `Image ${i + 1}/${n}, ${quand}${souris} (${v.largeur || '?'}×${v.hauteur || '?'}) :`;
+}
+
 // j : formes du nom du joueur (« du joueur », ou « d'Ameur » si COPILOTE_PRENOM=Ameur) ; le reste est mot pour mot celui d'avant.
 function consignes(s, langue = 'fr', j = formesJoueur(null)) {
   if (langue === 'en') return consignesAnglais(s, j);
@@ -261,7 +460,7 @@ FORME
 - Ta réponse est aussi lue à voix haute : pas de tableau, pas de lien ni d'adresse web, pas de titre, pas d'emoji, aucune mise en forme à part le gras et les étapes numérotées.
 
 CE QUE TU VOIS
-- Tu reçois une capture de la fenêtre du jeu prise au moment de la question, et parfois un zoom autour du curseur de la souris (ce qu'il survole). Sers-toi d'abord de ce qui est visible : info-bulle, bouton grisé, raison affichée en rouge, chiffres. Lis les petits chiffres avec soin ; si quelque chose n'est pas lisible, dis-le.
+- Tu reçois une capture de la fenêtre du jeu prise pendant sa question, ou plusieurs dans l'ordre quand l'écran a changé pendant qu'il parlait, et parfois un zoom autour du curseur de la souris (ce qu'il survole). Il te parle comme à quelqu'un assis à côté de lui : quand il dit « regarde », « je te montre » ou « ça », il survole ou ouvre ce dont il parle ; prends l'image où on le voit, sans décrire les autres. Sers-toi d'abord de ce qui est visible : info-bulle, bouton grisé, raison affichée en rouge, chiffres. Lis les petits chiffres avec soin ; si quelque chose n'est pas lisible, dis-le.
 - Si l'écran n'est pas une partie en cours (menu, chargement, écran noir), dis simplement ce que tu vois.
 
 SOURCES ET VERSION
@@ -282,8 +481,8 @@ ${s?.notesVersion || ''}
 ${s?.fonctionsExtensions || ''}`.trim();
 }
 
-export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, journal = console, modeles = {}}) {
-  const M = {...MODELES, ...modeles};   // modeles : seulement pour les essais (forcer une panne de Google)
+export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, journal = console, modeles = {}, reglagesRegard = {}}) {
+  const M = {...MODELES, ...modeles};   // modeles : seulement pour les essais (forcer une panne de Google) ; reglagesRegard aussi
   const cleGemini = env.GEMINI_API_KEY, cleOpenAI = env.OPENAI_API_KEY;
   // Prénom facultatif (.env ou variable d'environnement) : sans lui, les consignes parlent du « joueur » (appli publiée).
   const prenom = env.COPILOTE_PRENOM || process.env.COPILOTE_PRENOM || null;
@@ -314,24 +513,35 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
   obtenirSavoir();
 
   // Image prise dès l'appui sur le raccourci ou le clic (route /api/jeu/capturer, appelée par la page) : l'info-bulle qu'Ameur
-  // survolait en appuyant a souvent disparu quand il a fini de parler. En mémoire seulement, 40 s au plus, utilisée une fois.
+  // survolait en appuyant a souvent disparu quand il a fini de parler. Depuis le 07/10, le regard continue pendant toute l'écoute
+  // (creerRegard). En mémoire seulement, 40 s au plus, utilisé par une seule question. id : celui de la page, pour qu'une
+  // annulation n'arrête jamais le regard d'un appui plus récent.
   const AGE_PRECAPTURE = 40e3;
-  let precapture = null;
-  function precapturer() {
+  let regard = null, minuteurRegard = null;
+  function precapturer(id = null) {
     if (!aide) return Promise.reject(new Error('aide Windows absente'));
-    clearTimeout(precapture?.minuteur);
-    const p = {t: Date.now(), promesse: aide.capturer()};
-    p.promesse.catch(() => {});
-    p.minuteur = setTimeout(() => { if (precapture === p) precapture = null; }, AGE_PRECAPTURE);
-    p.minuteur.unref?.();
-    precapture = p;
-    return p.promesse;
+    regard?.abandonner();
+    clearTimeout(minuteurRegard);
+    const r = regard = creerRegard({aide, id, reglages: reglagesRegard});
+    r.premiere.catch(() => {});
+    minuteurRegard = setTimeout(() => { if (regard === r) { r.abandonner(); regard = null; } }, AGE_PRECAPTURE);
+    minuteurRegard.unref?.();
+    return r.premiere;
   }
-  function prendrePrecapture() {
-    const p = precapture;
-    precapture = null;
-    if (p) clearTimeout(p.minuteur);
-    return p && Date.now() - p.t < AGE_PRECAPTURE ? p : null;
+  function prendreRegard() {
+    const r = regard;
+    regard = null;
+    clearTimeout(minuteurRegard);
+    if (r && Date.now() - r.t < AGE_PRECAPTURE) return r;
+    r?.abandonner();
+    return null;
+  }
+  // Annulation par la page (question abandonnée, rien entendu) : seulement le regard de cet appui-là.
+  function arreterRegard(id) {
+    if (!regard || !id || regard.id !== id) return false;
+    regard.abandonner(); regard = null;
+    clearTimeout(minuteurRegard);
+    return true;
   }
 
   const enteteGemini = {'Content-Type': 'application/json', 'x-goog-api-key': cleGemini};
@@ -374,7 +584,11 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       pousser({type: 'etape', etape: 'reflexion', secours: true, texte: !cleGemini ? T.secoursSansCle : e?.credit || Date.now() < panne.jusqua ? T.secoursCredit : T.secoursPanne});
     }
 
+    // Regard de l'appui pris AVANT tout contrôle : une question refusée ci-dessous (rien entendu, aucune clé) l'arrête dans le catch,
+    // au lieu de le laisser imprimer CK3 jusqu'à 40 s et de servir à une question suivante qui n'a pas eu d'appui.
+    let pre = null, preFini = false;
     try {
+      pre = prendreRegard();
       if (!audio && !String(texte || '').trim()) throw francais(T.poseTaQuestion);
       if (!cleGemini && !cleOpenAI) throw francais(T.aucuneCle);
       const son = audio ? lireWav(audio, T) : null;
@@ -383,11 +597,17 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
 
       // 1. Capture de la fenêtre du jeu et, en même temps, écoute de la question.
       pousser({type: 'etape', etape: 'capture', texte: ETAPES_Q.capture});
-      // Image de l'appui si elle existe (une capture ratée à l'appui est refaite maintenant), sinon capture tout de suite.
-      const pre = prendrePrecapture();
+      // Vues prises de l'appui jusqu'à maintenant s'il y a eu appui (une capture ratée à l'appui est refaite maintenant), sinon
+      // capture tout de suite. capture rend {images, principale, fin?, resume?}.
       if (pre) q.ageCapture = +((t0 - pre.t) / 1000).toFixed(1);
-      const capture = (pre ? pre.promesse.catch(() => aide.capturer()) : aide ? aide.capturer() : Promise.reject(new Error('aide Windows absente'))).then(c => { q.durees.capture = ms(); return c; });
+      // t : moment de la vue dans la question. Capture de l'appui ratée : celle faite maintenant date de la fin de la question (t > 0,
+      // « pendant qu'il posait sa question »), pas de l'appui.
+      const seule = (c, t = 0) => ({images: [{...c, t}], principale: 0});
+      preFini = !!pre;   // finir() arrête lui-même le regard ; l'abandonner en route ferait refaire une capture pour rien
+      const capture = (pre ? pre.finir().catch(() => aide.capturer().then(c => seule(c, Math.max(1, Date.now() - pre.t))))
+        : aide ? aide.capturer().then(c => seule(c)) : Promise.reject(new Error('aide Windows absente'))).then(c => { q.durees.capture = ms(); return c; });
       capture.catch(() => {});
+      const principaleDe = v => v?.images?.[v.principale] || v?.images?.[0] || null;
       const savoirAttendu = obtenirSavoir();
       // CK3 fermé ou réduit se sait en quelques ms (capture de l'appui déjà faite, ou échec immédiat) : on attend ce verdict
       // (250 ms au plus) AVANT de confier la voix au réseau, pour ne jamais envoyer le son d'une question sans réponse.
@@ -402,7 +622,7 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
           // Deux écoutes en parallèle : Flash rend la question ET les termes anglais du jeu, mais a mis 3 à 8 s le 06/10 ; le modèle
           // de transcription répond en 1,7 s. Flash est attendu au plus 1,5 s de plus, sinon on continue sans ses termes (le lexique
           // français-anglais du savoir prend le relais).
-          const complet = Promise.race([capture.catch(() => null), attendre(700)]).then(c => ecouterGemini(son, c?.plein));   // image basse résolution si prête
+          const complet = Promise.race([capture.catch(() => null), attendre(700)]).then(c => ecouterGemini(son, principaleDe(c)?.plein));   // image basse résolution si prête
           const rapide = transcrireGemini(son).then(question => ({question, termes: []}));
           complet.catch(() => {}); rapide.catch(() => {});
           const premier = await Promise.any([complet.then(r => ({...r, flash: true})), rapide]).catch(ae => ({erreur: ae.errors?.[0] || ae}));
@@ -420,13 +640,17 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
         })().then(r => { q.durees.ecoute = ms(); return r; });
         ecoute.catch(() => {});
       }
-      let image = null, raisonSansImage = '';
-      try { image = await capture; } catch (e) {
+      let vue = null, raisonSansImage = '';
+      try { vue = await capture; } catch (e) {
         if (aideBloquante(e)) throw francais(texteAide(e, langue));
         raisonSansImage = texteAide(e, langue);   // dite au modèle, dans la langue de ses consignes
       }
-      if (image && !image.plein?.length) { image = null; raisonSansImage = T.captureVide; }
-      if (image) mkdir(dossierMemoire, {recursive: true}).then(() => writeFile(path.join(dossierMemoire, 'derniere-capture.jpg'), image.plein)).catch(() => {});   // pour le dépannage, écrasée à chaque question
+      const images = (vue?.images || []).filter(v => v?.plein?.length);
+      if (vue && !images.length) raisonSansImage = T.captureVide;
+      const principale = images.includes(principaleDe(vue)) ? principaleDe(vue) : images[0] || null;
+      if (vue?.resume) q.regard = {...vue.resume, choisies: images.map(v => +(v.t / 1000).toFixed(1)), principale: images.indexOf(principale)};
+      // Pour le dépannage, écrasée à chaque question : la vue principale seulement (jamais les autres).
+      if (principale) mkdir(dossierMemoire, {recursive: true}).then(() => writeFile(path.join(dossierMemoire, 'derniere-capture.jpg'), principale.plein)).catch(() => {});
 
       let termes = [];
       if (ecoute) ({question: q.question, termes} = await ecoute);
@@ -444,12 +668,27 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       const parts = [];
       // Textes d'accompagnement dans la langue de la réponse : des consignes en français autour d'une question anglaise faisaient
       // répondre en français.
+      const image = images.length === 1 ? images[0] : null;
+      // Une seule vue (écran inchangé pendant la question, question écrite, pas d'appui) : textes d'avant, mot pour mot.
+      const prise = en ? (q.ageCapture == null ? 'at the moment of the question' : image?.t > 0 ? 'while they were asking their question' : 'when they pressed the key to ask their question')
+        : (q.ageCapture == null ? 'au moment de la question' : image?.t > 0 ? 'pendant qu\'il posait sa question' : 'quand il a appuyé pour poser sa question');
       if (image && en) {
-        parts.push({texte: `Screenshot of the Crusader Kings III window taken ${q.ageCapture != null ? 'when they pressed the key to ask their question' : 'at the moment of the question'} (${image.largeur || '?'}×${image.hauteur || '?'}):`}, {image: image.plein});
+        parts.push({texte: `Screenshot of the Crusader Kings III window taken ${prise} (${image.largeur || '?'}×${image.hauteur || '?'}):`}, {image: image.plein});
         if (image.zoom?.length) parts.push({texte: `Zoom around the mouse cursor (native resolution${image.curseur ? `; cursor at x=${image.curseur.x}, y=${image.curseur.y} in the window` : ''}):`}, {image: image.zoom});
       } else if (image) {
-        parts.push({texte: `Capture de la fenêtre de Crusader Kings III prise ${q.ageCapture != null ? 'quand il a appuyé pour poser sa question' : 'au moment de la question'} (${image.largeur || '?'}×${image.hauteur || '?'}) :`}, {image: image.plein});
+        parts.push({texte: `Capture de la fenêtre de Crusader Kings III prise ${prise} (${image.largeur || '?'}×${image.hauteur || '?'}) :`}, {image: image.plein});
         if (image.zoom?.length) parts.push({texte: `Zoom autour du curseur de la souris (résolution native${image.curseur ? ` ; curseur en x=${image.curseur.x}, y=${image.curseur.y} dans la fenêtre` : ''}) :`}, {image: image.zoom});
+      } else if (images.length > 1) {
+        // Plusieurs vues : dans l'ordre, chacune avec son heure dans la question et l'état de la souris. Les zooms (résolution
+        // native, là où se lisent les info-bulles) restent en haute résolution ; à 3 ou 4 vues, seule la principale part entière en
+        // haute résolution, les autres en moyenne (529 jetons Gemini au lieu de 1 102).
+        const n = images.length, fin = Math.max(vue.fin ?? 0, images.at(-1).t), duree = secondes(q.ageCapture != null ? q.ageCapture * 1000 : fin, en);
+        parts.push({texte: en ? `Here are ${n} screenshots of the Crusader Kings III window taken WHILE they were speaking (${duree} s), in order: the screen changed during their question. They may be SHOWING you something as they talk ("look", "I'm showing you", "this"): hovering an element, opening a panel or scrolling, and tooltips vanish as soon as the mouse moves. Use the image that matches what they are talking about (often the one where the mouse stopped on what they point at); do not describe every image.`
+          : `Voici ${n} captures de la fenêtre de Crusader Kings III prises PENDANT qu'il parlait (${duree} s), dans l'ordre : l'écran a changé pendant sa question. Il est peut-être en train de te MONTRER quelque chose en parlant (« je te montre », « regarde », « ça ») : il survole un élément, ouvre un panneau ou fait défiler, et les info-bulles disparaissent dès que la souris bouge. Sers-toi de l'image qui correspond à ce dont il parle (souvent celle où la souris s'est arrêtée sur ce qu'il désigne) ; ne décris pas toutes les images.`});
+        images.forEach((v, i) => {
+          parts.push({texte: libelleVue(v, i, n, fin, en)}, {image: v.plein, resolution: n <= 2 || v === principale ? 'haute' : 'moyenne'});
+          if (v.zoom?.length) parts.push({texte: en ? `Zoom of image ${i + 1} around the mouse cursor (native resolution):` : `Zoom de l'image ${i + 1} autour du curseur de la souris (résolution native) :`}, {image: v.zoom});
+        });
       } else if (en) parts.push({texte: `(No screenshot: ${raisonSansImage || T.sansImage}. Answer without seeing the screen and say so in one sentence.)`});
       else parts.push({texte: `(Pas de capture d'écran : ${raisonSansImage || T.sansImage}. Réponds sans voir l'écran et dis-le en une phrase.)`});
       if (extraits.length) parts.push({texte: (en ? `Excerpts from the game's Encyclopedia (exact texts of the installed version ${savoir.version}):\n\n` : `Extraits de l'Encyclopédie du jeu (textes exacts de la version ${savoir.version} installée) :\n\n`) + extraits.map(e => `## ${e.titre}\n${e.texte}`).join('\n\n')});
@@ -457,6 +696,7 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       else if (savoir) parts.push({texte: en ? 'No excerpt from the game\'s Encyclopedia covers this question. If it is about a game rule, run a Google search (official CK3 wiki, 1.20 or 1.19 pages) before stating a rule or a number; otherwise say what remains to be checked and where to see it in the game.'
         : 'Aucun extrait de l\'Encyclopédie du jeu ne couvre cette question. Si elle porte sur une règle du jeu, fais une recherche Google (wiki officiel de CK3, pages 1.20 ou 1.19) avant d\'affirmer une règle ou un chiffre ; sinon dis ce qui reste à vérifier et où le voir dans le jeu.'});
       parts.push({texte: en ? `${joueur.en.De} question${son ? ' (spoken aloud, transcribed)' : ''}: ${q.question}` : `Question ${joueur.fr.de}${son ? ' (dite à voix haute, transcrite)' : ''} : ${q.question}`});
+      q.images = parts.filter(p => p.image).length;   // images envoyées au modèle de réponse (vues entières et zooms)
       const systeme = consignes(savoir, langue, joueur);
 
       let index = 0;
@@ -499,6 +739,7 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       q.durees.total = ms();
       pousser({type: 'fin', ms: q.durees.total, coutCents: +q.cout.toFixed(3)});
     } catch (e) {
+      if (!preFini) pre?.abandonner();
       q.erreur = annulee(e) ? 'annulée (nouvelle question ou page fermée)' : e.message;
       q.durees.total = ms();
       if (!annulee(e)) {
@@ -507,7 +748,8 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       }
     } finally {
       await journaliser({t: q.t, heure: q.heure, mode: q.mode, voix: q.voix, ...(en ? {langue} : {}), question: q.question, reponse: q.reponse, modeles: q.modeles, jetons: q.jetons,
-        durees: q.durees, ...(q.ageCapture != null ? {ageCapture: q.ageCapture} : {}), recherches: q.recherches, sources: q.sources, extraits: q.extraits, coutCents: +q.cout.toFixed(3), secours: q.secours,
+        durees: q.durees, ...(q.ageCapture != null ? {ageCapture: q.ageCapture} : {}), ...(q.images != null ? {images: q.images} : {}), ...(q.regard ? {regard: q.regard} : {}),
+        recherches: q.recherches, sources: q.sources, extraits: q.extraits, coutCents: +q.cout.toFixed(3), secours: q.secours,
         ...(q.erreurVoix ? {erreurVoix: q.erreurVoix} : {}), ...(q.incomplete ? {incomplete: true} : {}), erreur: q.erreur});
     }
 
@@ -556,7 +798,7 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
     // Historique (texte seulement) + tour actuel. parts : [{texte} | {image: Buffer}].
     async function repondreGemini({parts, systeme, signal, surTexte, pousser}) {
       const contents = historique.flatMap(h => [{role: 'user', parts: [{text: h.question}]}, {role: 'model', parts: [{text: h.reponse}]}]);
-      contents.push({role: 'user', parts: parts.map(p => p.image ? {inline_data: {mime_type: 'image/jpeg', data: p.image.toString('base64')}, mediaResolution: {level: 'MEDIA_RESOLUTION_HIGH'}} : {text: p.texte})});
+      contents.push({role: 'user', parts: parts.map(p => p.image ? {inline_data: {mime_type: 'image/jpeg', data: p.image.toString('base64')}, mediaResolution: {level: p.resolution === 'moyenne' ? 'MEDIA_RESOLUTION_MEDIUM' : 'MEDIA_RESOLUTION_HIGH'}} : {text: p.texte})});
       let usage = {}, gm = null, recherche = false, texte = '', fin = null;
       // Google n'envoie ses en-têtes qu'avec le premier morceau : sans nouvelles après 3,5 s, on dit à Ameur que ça avance, sans
       // prétendre chercher sur Internet (« Je vérifie sur Internet » n'est dit que si Google annonce une vraie recherche).
@@ -741,10 +983,13 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
     try {
       if (url.pathname === '/api/jeu/etat' && req.method === 'GET') return json(200, await etat()), true;
       if (url.pathname === '/api/jeu/oublier' && req.method === 'POST') { req.resume(); oublier(); return json(200, {ok: true}), true; }
+      // ?regard= : identifiant choisi par la page pour cet appui (lettres, chiffres, tirets) ; il sert à l'annuler.
+      const idRegard = /^[\w-]{1,40}$/.test(url.searchParams?.get('regard') || '') ? url.searchParams.get('regard') : null;
+      if (url.pathname === '/api/jeu/regard/arret' && req.method === 'POST') { req.resume(); return json(200, {ok: true, arrete: arreterRegard(idRegard)}), true; }
       if (url.pathname === '/api/jeu/capturer' && req.method === 'POST') {
         req.resume();
         // bloquant : CK3 fermé ou réduit (la page referme alors le micro) ; code : celui de l'aide, pour qui veut sa propre phrase.
-        const c = await precapturer().catch(e => ({erreur: texteAide(e, langueUrl), code: codeAide(e), bloquant: aideBloquante(e)}));
+        const c = await precapturer(idRegard).catch(e => ({erreur: texteAide(e, langueUrl), code: codeAide(e), bloquant: aideBloquante(e)}));
         return json(200, c.erreur ? {ok: false, erreur: c.erreur, ...(c.code ? {code: c.code} : {}), bloquant: c.bloquant} : {ok: true, ms: c.ms, largeur: c.largeur, hauteur: c.hauteur, zoom: !!c.zoom}), true;
       }
       if (url.pathname !== '/api/jeu/question' || req.method !== 'POST') return json(404, {erreur: 'route inconnue'}), true;
@@ -773,5 +1018,5 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
     }
   }
 
-  return {route, poser, etat, oublier, precapturer};
+  return {route, poser, etat, oublier, precapturer, arreterRegard};
 }
