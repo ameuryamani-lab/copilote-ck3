@@ -539,7 +539,16 @@ if (ESSAI) {
 const premier = ESSAI || app.requestSingleInstanceLock();
 if (!premier) app.quit();
 else {
-  app.on('second-instance', () => { journal.log('Deuxième lancement : la copie déjà ouverte reste seule'); forceJusqua = Date.now() + 15000; montrer(); fenetre?.moveTop(); });
+  // Deuxième lancement : la copie ouverte reste seule, mais sa page repart à neuf (07/10 : ouverte depuis la veille, l'icône ne
+  // réagissait plus aux clics ; Ameur relance le raccourci, rien ne change, alors qu'un redémarrage réglait tout). Pas pendant
+  // une écoute : la question en cours n'est pas coupée.
+  app.on('second-instance', () => {
+    const ecoute = Date.now() < ecouteJusqua;
+    journal.log(`Deuxième lancement : la copie déjà ouverte reste seule${ecoute ? ' (écoute en cours, page gardée)' : ', sa page est rechargée'}`);
+    // La page rechargée repart icône repliée : la fenêtre aussi, sinon un grand cadre transparent resterait sur le jeu.
+    if (!ecoute && fenetre && !fenetre.isDestroyed()) { agrandi = false; appliquerTaille(); fenetre.webContents.reloadIgnoringCache(); }
+    forceJusqua = Date.now() + 15000; montrer(); fenetre?.moveTop();
+  });
   app.on('web-contents-created', (_e, wc) => { wc.on('will-attach-webview', e => e.preventDefault()); });
   app.on('before-quit', () => {
     for (const m of minuteries) clearInterval(m);
