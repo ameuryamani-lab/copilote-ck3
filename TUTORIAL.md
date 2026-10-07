@@ -69,26 +69,46 @@ The installer goes through 5 steps:
 
 It ends with "Installation finished!". Press Enter to close the window.
 
-This is what you should see (each line is followed by its French version):
+This is roughly what you should see. It is shortened: in the real window, each line is followed by its French version, and `...` marks a few lines left out here.
 
 ```
+CK3 Copilot - installation
+Folder / Dossier : C:\Games\copilote-ck3-main
+
 [1/5] Checking Windows and this folder
 Windows 11 (build 26200), 64-bit: OK.
+
 [2/5] Checking Node.js (only needed to install)
 Node.js 22.23.2 found.
+
 [3/5] Installing the app engine (Electron)
 Installing the packages (npm)... about one minute.
+added 13 packages in 2s
 Downloading Electron (about 150 MB): this can take a few minutes...
 Electron 44.5.1 installed.
+
 [4/5] Google Gemini key
+.env created (your settings file, it stays on this PC).
+Paste your Google Gemini key, then press Enter. To paste: Ctrl+V or right-click.
+...
 Gemini key / Clé Gemini: ***************************************
+Checking the key with Google...
 Google accepts this key.
 Key saved in .env (on this PC only).
+
 [5/5] Desktop shortcut and microphone
 Desktop shortcut "CK3 Copilot" created.
 Microphone: not blocked by Windows.
+
 Installation finished!
+
+Next:
+  1. Start Crusader Kings III.
+...
+Press Enter to close / Appuie sur Entrée pour fermer:
 ```
+
+Your version numbers may differ: that is fine.
 
 You can run the installer again at any time: it only does what is missing, and keeps your key.
 
@@ -306,26 +326,46 @@ L'installation passe par 5 étapes :
 
 Elle se termine par « Installation terminée ! ». Appuie sur Entrée pour fermer la fenêtre.
 
-Voici ce que tu dois voir (chaque ligne en français suit sa version anglaise) :
+Voici à peu près ce que tu dois voir. C'est raccourci : dans la vraie fenêtre, chaque ligne en français suit sa version anglaise, et `...` marque quelques lignes omises ici.
 
 ```
+Copilote CK3 - installation
+Folder / Dossier : C:\Jeux\copilote-ck3-main
+
 [1/5] Vérification de Windows et de ce dossier
 Windows 11 (build 26200), 64 bits : OK.
+
 [2/5] Vérification de Node.js (utile seulement pour installer)
 Node.js 22.23.2 trouvé.
+
 [3/5] Installation du moteur de l'appli (Electron)
 Installation des paquets (npm)... environ une minute.
+added 13 packages in 2s
 Téléchargement d'Electron (environ 150 Mo) : cela peut prendre quelques minutes...
 Electron 44.5.1 installé.
+
 [4/5] Clé Google Gemini
+.env créé (ton fichier de réglages, il reste sur ce PC).
+Colle ta clé Google Gemini, puis appuie sur Entrée. Pour coller : Ctrl+V ou clic droit.
+...
 Gemini key / Clé Gemini: ***************************************
+Vérification de la clé auprès de Google...
 Google accepte cette clé.
 Clé enregistrée dans .env (sur ce PC seulement).
+
 [5/5] Raccourci sur le Bureau et micro
 Raccourci "CK3 Copilot" créé sur le Bureau.
 Micro : pas bloqué par Windows.
+
 Installation terminée !
+
+Ensuite :
+  1. Lance Crusader Kings III.
+...
+Press Enter to close / Appuie sur Entrée pour fermer:
 ```
+
+Tes numéros de version peuvent être différents : ce n'est pas grave.
 
 Tu peux relancer l'installation quand tu veux : elle ne fait que ce qui manque, et garde ta clé.
 
