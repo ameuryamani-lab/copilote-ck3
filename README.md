@@ -30,6 +30,7 @@ No more taking photos of your screen with your phone to ask an AI for help.
 - Drag the answer panel anywhere: it stays there.
 - The icon only shows while CK3 is in the foreground.
 - Tray icon menu (next to the clock): voice on or off, forget the conversation, reset the icon and panel position, **Langue / Language** (Français / English), quit. Changing the language also clears the conversation.
+- **If the copilot ever gets stuck** (nothing reacts over the game): right-click the icon or the panel for **Collapse / Reload / Quit**, or press **Ctrl+Shift+Backspace** to reset it. Press it **twice** within 2 seconds to close it, even if it froze. The game never receives these keys.
 
 ## Installation (Windows 10 or 11)
 
@@ -102,6 +103,7 @@ Un copilote vocal pour Crusader Kings III, sous Windows. Une petite icône micro
 - **Il te faut :** Windows 10 ou 11, CK3 sur Steam **avec le jeu réglé en anglais** (dans le jeu : **Paramètres**, rubrique **Langue**, English), Node.js 22.12 ou plus récent (seulement pour installer : l'installation te guide s'il manque) et une clé Google Gemini. Essayé avec CK3 1.20 en mode « Fullscreen » à 1920 × 1080, sur un seul écran.
 - **Langue des réponses :** français ou anglais, au choix dans le menu de l'icône (« Langue / Language ») ; par défaut, la langue de Windows. Les noms des boutons restent en anglais, comme dans le jeu.
 - **Utilisation :** Ctrl+Maj+Espace ou clic sur l'icône (garder les touches enfoncées pour parler comme avec un talkie-walkie).
+- **S'il reste bloqué** sur le jeu : clic droit sur l'icône ou le panneau pour **Replier / Recharger / Quitter**, ou **Ctrl+Maj+Retour arrière** pour le remettre à zéro ; **deux fois** en moins de 2 secondes pour le fermer, même s'il est figé. Le jeu ne reçoit pas ces touches.
 - **Il regarde pendant toute ta question :** de l'appui jusqu'à la fin de ta phrase, il garde un œil sur la fenêtre de CK3 (un coup d'œil léger environ une fois par seconde) et envoie jusqu'à 4 vues avec ta question. Tu peux donc dire « regarde ça » en survolant quelque chose. Astuce : arrête la souris une demi-seconde sur ce que tu veux lui montrer, le temps que l'info-bulle du jeu s'ouvre.
 - **Installation :** télécharge le ZIP (bouton vert **Code**, puis **Download ZIP**) et extrais-le, par exemple dans `C:\Jeux` : Windows y crée le dossier du copilote, `copilote-ck3-main`. Dans ce dossier, double-clique sur **`Installer-Copilote-CK3.cmd`** : il vérifie Node.js, installe Electron (environ 150 Mo), te demande ta clé Google Gemini et crée un raccourci **CK3 Copilot** sur le Bureau. Lance ensuite CK3, puis le raccourci. Tout est expliqué pas à pas, avec des images, dans le **[guide](TUTORIAL.md#version-française)**. Installation à la main pour les développeurs : les commandes de la partie anglaise.
 - **Coût :** environ 1 cent par question jusqu'à fin 2026, près de 2 cents à partir du 1er janvier 2027 (Google double alors ses prix).

@@ -3,6 +3,8 @@
 // Pendant une question, le cerveau le fait regarder le jeu par des aperçus légers (apercu : empreinte + souris, sans JPEG).
 // Il n'envoie jamais ni touche ni clic. S'il tombe, il est relancé (3 fois par minute au plus), puis déclaré en panne ('erreur') ;
 // une demande faite plus d'une minute après la panne (ou un nouveau demarrer()) le relance.
+// Raccourci d'urgence (09/10/2026) : Ctrl+Maj+Retour arrière dans CK3 → événement 'secours' {action: 'reinitialiser'} ; deux fois
+// en moins de 2 s → {action: 'quitter'}, et si Electron (parent) n'est pas parti 4 s plus tard, l'aide l'arrête elle-même.
 import {spawn} from 'node:child_process';
 import {EventEmitter} from 'node:events';
 import path from 'node:path';
@@ -17,7 +19,7 @@ const MESSAGES = {
 // Délais de réponse, comptés à partir du moment où l'aide COMMENCE la commande (elle les traite une par une) : au-delà, son fil
 // de travail est bloqué (PrintWindow sur un CK3 figé...) et on la relance. Une commande qui attend son tour plus longtemps que
 // son délai est seulement abandonnée : l'état demandé derrière une capture lente ne doit pas tuer l'aide (et la capture).
-const DELAIS = {etat: 5000, capturer: 15000, apercu: 15000, liberer: 5000, diagnostic: 5000, banc: 20000, reinstaller: 5000};
+const DELAIS = {etat: 5000, capturer: 15000, apercu: 15000, liberer: 5000, diagnostic: 5000, banc: 20000, reinstaller: 5000, urgence: 5000};
 const IMPRESSIONS = ['capturer', 'apercu'];   // commandes qui impriment CK3 (PrintWindow) et peuvent donc prendre du temps
 const MAX_RELANCES = 3;   // par minute
 // Immobilité de la souris : -1 de l'aide (on l'ignore encore) devient null, pour que personne ne la prenne pour un mouvement.
@@ -25,7 +27,9 @@ const immobile = ms => Number.isFinite(ms) && ms >= 0 ? ms : null;
 const NOUVEL_ESSAI_MS = 60000;   // après une panne, nouvel essai au plus tôt une minute plus tard
 
 // processus, crochet et script ne servent qu'aux essais (faux nom de processus, aide sans crochet, script cassé).
-export function creerAideWindows({journal = console, processus = 'ck3', crochet = true, script = SCRIPT} = {}) {
+// parent : pid du processus que le double Ctrl+Maj+Retour arrière arrête de force s'il n'a pas quitté seul (Electron passe le
+// sien ; 0 = aucun). fichierJournal : app.log, où l'aide note cet arrêt forcé (Electron, figé, ne peut plus le faire).
+export function creerAideWindows({journal = console, processus = 'ck3', crochet = true, script = SCRIPT, parent = 0, fichierJournal = null} = {}) {
   const aide = new EventEmitter();
   aide.setMaxListeners(50);
   const noter = (niveau, texte) => { try { (journal[niveau] || journal.log).call(journal, `Aide Windows : ${texte}`); } catch {} };
@@ -42,6 +46,8 @@ export function creerAideWindows({journal = console, processus = 'ck3', crochet 
     info = null; tampon = ''; erreurs = '';
     const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Processus', processus];
     if (!crochet) args.push('-SansCrochet');
+    if (Number.isInteger(parent) && parent > 0) args.push('-Parent', String(parent));
+    if (fichierJournal) args.push('-Journal', String(fichierJournal));
     // windowsHide : aucune console ne doit apparaître au-dessus du jeu.
     const p = spawn('powershell.exe', args, {windowsHide: true, stdio: ['pipe', 'pipe', 'pipe']});
     enfant = p;
@@ -76,7 +82,11 @@ export function creerAideWindows({journal = console, processus = 'ck3', crochet 
       aide.emit('pret', m);
       return;
     }
-    if (m.evt === 'raccourci') { aide.emit('raccourci', {etat: m.etat, t: m.t}); return; }
+    if (m.evt === 'raccourci') {
+      if (m.etat === 'reinitialiser' || m.etat === 'quitter') aide.emit('secours', {action: m.etat, t: m.t});
+      else aide.emit('raccourci', {etat: m.etat, t: m.t});
+      return;
+    }
     const i = file.findIndex(r => r.id === m.id);
     if (i < 0) return;
     // Les réponses arrivent dans l'ordre d'envoi : celles d'avant, jamais venues, sont perdues.
@@ -219,6 +229,7 @@ export function creerAideWindows({journal = console, processus = 'ck3', crochet 
     diagnostic: () => requete('diagnostic'),   // état du crochet : installé, appels, durée max du rappel (µs)
     banc: () => requete('banc'),               // banc d'essai de la décision du raccourci, sans toucher au clavier
     reinstaller: () => requete('reinstaller'), // essai : réinstallation du crochet (faite seule toutes les 5 min)
+    essaiUrgence: () => requete('urgence'),    // essai : chemin du double Ctrl+Maj+Retour arrière (avec un faux parent !)
   });
   Object.defineProperties(aide, {
     pid: {get: () => enfant?.pid ?? null},      // PowerShell en cours (pour les essais)

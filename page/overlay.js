@@ -29,6 +29,7 @@
     return {fr: secours, en: secours};
   }
   const $ = s => document.querySelector(s);
+  const pause = ms => new Promise(r => setTimeout(r, ms));
   const corps = document.body;
   const el = {micro: $('#micro'), question: $('#question'), attente: $('#attente-texte'), reponse: $('#reponse'), erreur: $('#erreur'),
     sources: $('#sources ul'), suggestions: $('#suggestions'), statut: $('#statut'), titre: $('#titre'),
@@ -40,7 +41,7 @@
   function pontNavigateur() {
     const lire = () => { try { return localStorage.getItem('copilote-voix') !== '0'; } catch { return true; } };
     return {
-      onRaccourci() {}, onEtat() {}, agrandir() {}, deplacer() {}, finDeplacement() {}, ecoute() {},
+      onRaccourci() {}, onEtat() {}, onCommande() {}, agrandir() {}, deplacer() {}, finDeplacement() {}, ecoute() {}, battement() {}, evenement() {}, menu() {},
       ouvrirLien(u) { window.open(u, '_blank', 'noopener,noreferrer'); },
       async voix() { return lire(); },
       async basculerVoix() { const v = !lire(); try { localStorage.setItem('copilote-voix', v ? '1' : '0'); } catch {} return v; },
@@ -58,6 +59,13 @@
   const echapper = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;'})[c]);
   // Micro ouvert ou fermé, signalé à Electron : l'icône (seul témoin de l'écoute) ne doit pas disparaître pendant l'enregistrement.
   const signalerEcoute = oui => { try { pont.ecoute?.(oui); } catch {} };
+  // Journal d'Electron (app.log), 09/10/2026 : début et fin des questions, glissements interrompus, erreurs de la page. Jamais le
+  // texte d'une question ni d'une réponse.
+  const signaler = (nom, details = {}) => { try { pont.evenement?.(nom, details); } catch {} };
+  const nomFichier = f => String(f || '').split(/[?#]/)[0].split(/[\\/]/).pop().slice(0, 40);
+  self.addEventListener?.('error', e => signaler('erreur', {message: String(e?.message || 'erreur').slice(0, 200), source: `${nomFichier(e?.filename)}:${e?.lineno || 0}`}));
+  self.addEventListener?.('unhandledrejection', e => signaler('erreur', {message: String(e?.reason?.message || e?.reason || 'promesse rejetée').slice(0, 200), source: 'promesse'}));
+  let glissements = 0;   // glissements en cours (icône ou panneau), pour le battement
 
   // ---------- Voix : un seul AudioContext à 24 kHz, morceaux joués à la suite dans l'ordre d'arrivée ----------
   // coupe : Ameur a coupé la voix d'un clic ; les morceaux qui arrivent encore sont gardés (pour « répéter ») mais pas joués.
@@ -104,15 +112,21 @@
 
   // ---------- Micro : AudioWorklet → 16 kHz mono Int16, niveau en direct, détection simple du silence ----------
   // Un micro neuf par question : la fermeture tardive d'une question abandonnée ne peut pas couper celui de la suivante.
+  // Revue du 09/10/2026 : getUserMedia, le chargement du worklet ou la reprise du contexte audio peuvent ne jamais répondre (pilote
+  // du casque, micro pris par une autre appli). Sans délai, la page restait « en écoute », l'icône rouge ne réagissait plus aux
+  // clics ni au raccourci, et Electron ne voyait rien (la page battait toujours). Démarrage borné à 8 s (puis « Le micro ne répond
+  // pas »), fermeture bornée à 1 s par étape ; ce qui s'ouvrirait encore après est refermé par le démarrage lui-même.
+  const DELAI_MICRO_MS = 8000;
   function creerMicro() {
     const m = {flux: null, ctx: null, noeud: null, paquets: [], taille: 0, debut: performance.now(), parole: false, maxNiveau: 0, plancher: .01, suite: 0, finRecue: null, ferme: false};
     m.dernierSon = m.debut;
-    m.pret = (async () => {
-      m.flux = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1}});
-      if (m.ferme) return;
+    const demarrage = (async () => {
+      const flux = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1}});
+      if (m.ferme) { flux.getTracks().forEach(t => t.stop()); return; }   // fermé pendant l'attente : la piste ne reste pas ouverte
+      m.flux = flux;
       m.ctx = new AudioContext({latencyHint: 'interactive'});
       await m.ctx.audioWorklet.addModule('micro-worklet.js');
-      if (m.ferme) return;
+      if (m.ferme) return;   // fermer() a déjà arrêté la piste et le contexte (ils existaient avant l'attente)
       const source = m.ctx.createMediaStreamSource(m.flux);
       m.noeud = new AudioWorkletNode(m.ctx, 'micro-16k', {numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], channelCount: 1, channelCountMode: 'explicit'});
       m.noeud.port.onmessage = e => recevoir(e.data);
@@ -121,6 +135,7 @@
       source.connect(m.noeud).connect(silence).connect(m.ctx.destination);
       if (m.ctx.state === 'suspended') await m.ctx.resume();
     })();
+    m.pret = Promise.race([demarrage, new Promise((_, ko) => setTimeout(() => ko(Object.assign(new Error(`micro sans réponse après ${DELAI_MICRO_MS / 1000} s`), {name: 'TimeoutError'})), DELAI_MICRO_MS))]);
     function recevoir(d) {
       if (d.fin) return m.finRecue?.();
       m.paquets.push(d.pcm); m.taille += d.pcm.length;
@@ -134,10 +149,10 @@
     // Ferme tout (le micro s'éteint entre deux questions) et rend les échantillons reçus.
     m.fermer = async () => {
       m.ferme = true;
-      await m.pret.catch(() => {});
+      await Promise.race([m.pret.catch(() => {}), pause(1000)]);
       if (m.noeud) await new Promise(ok => { m.finRecue = ok; m.noeud.port.postMessage('stop'); setTimeout(ok, 300); });
       m.flux?.getTracks().forEach(t => t.stop());
-      try { await m.ctx?.close(); } catch {}
+      if (m.ctx) await Promise.race([m.ctx.close().catch(() => {}), pause(1000)]);
       m.flux = m.ctx = m.noeud = m.finRecue = null;
       if (!micro) corps.style.setProperty('--niveau', 0);
       const pcm = new Int16Array(m.taille);
@@ -283,7 +298,9 @@
     let minuteur;
     const relancer = () => { clearTimeout(minuteur); minuteur = setTimeout(() => ctrl.abort('delai'), 45000); };
     relancer();
-    let termine = false;
+    let termine = false, issue = null;
+    const t0 = performance.now();
+    signaler('question', {etape: 'envoyee', voix: !!donnees.audio});
     try {
       // langue dans le corps (la question) et dans l'adresse (pour les erreurs dites avant la lecture du corps).
       const r = await fetch(`/api/jeu/question?langue=${langue}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...donnees, voix: voixActive, langue}), signal: ctrl.signal});
@@ -293,16 +310,21 @@
         throw new Error(m);
       }
       // Tout morceau reçu relance le minuteur, y compris le battement que le serveur envoie toutes les 10 s pendant qu'il travaille.
-      await lireFlux(r, ev => { if (g !== generation) return; if (ev.type === 'fin' || ev.type === 'erreur') termine = true; traiter(ev); }, relancer);
-      if (g === generation && !termine) traiter({type: 'erreur', message: T.arreteeEnRoute});
+      await lireFlux(r, ev => { if (g !== generation) return; if (ev.type === 'fin' || ev.type === 'erreur') { termine = true; issue = ev.type; } traiter(ev); }, relancer);
+      if (g === generation && !termine) { issue = 'coupee'; traiter({type: 'erreur', message: T.arreteeEnRoute}); }
     } catch (e) {
+      issue = 'annulee';
       if (g !== generation) return;
       if (ctrl.signal.aborted && ctrl.signal.reason !== 'delai') return;       // question annulée exprès
       // Réponse déjà affichée : seule la voix manque, ce n'est pas une erreur à montrer.
-      if (ctrl.signal.reason === 'delai' && texte) { changerEtat('reponse'); corps.classList.add('fini'); statut(T.voixInterrompue); return; }
+      if (ctrl.signal.reason === 'delai' && texte) { issue = 'voix-interrompue'; changerEtat('reponse'); corps.classList.add('fini'); statut(T.voixInterrompue); return; }
+      issue = ctrl.signal.reason === 'delai' ? 'delai' : 'erreur';
       traiter({type: 'erreur', message: ctrl.signal.reason === 'delai' ? T.delai
         : /fetch|network/i.test(e.message) ? T.serveurMuet : e.message});
-    } finally { clearTimeout(minuteur); if (controleur === ctrl) controleur = null; }
+    } finally {
+      clearTimeout(minuteur); if (controleur === ctrl) controleur = null;
+      signaler('question', {etape: 'finie', issue: issue || (g !== generation ? 'annulee' : 'inconnue'), ms: Math.round(performance.now() - t0)});
+    }
   }
 
   async function lireFlux(reponse, surEvenement, surMorceau = () => {}) {
@@ -417,33 +439,62 @@
   }
 
   // Glisser pour déplacer : événements pointeur + IPC (la zone « drag » de Windows ne marche pas sur une fenêtre sans focus).
+  // 09/10/2026 : un glissement ne reste jamais accroché. Il finit au relâchement, mais aussi quand la capture du pointeur est perdue
+  // (fenêtre cachée ou redimensionnée en plein geste, clic pris par le jeu), à l'annulation, au premier mouvement sans bouton
+  // enfoncé (relâchement jamais reçu), quand la page est cachée ou perd le focus, et au clic droit : la fenêtre ne suit plus la
+  // souris toute seule. Moins de 5 px : ce n'est pas un glissement (un clic sur l'icône reste un clic).
+  const finsDeGlissement = new Set();
   function glissable(elem, surClic) {
-    let depart = null, dernier = null, glisse = false;
+    let depart = null, dernier = null, glisse = false, pointeur = null;
+    function terminer(raison) {
+      if (!depart) return;
+      const avaitGlisse = glisse, p = pointeur;
+      depart = dernier = null; glisse = false; pointeur = null;
+      try { if (p !== null && elem.hasPointerCapture?.(p)) elem.releasePointerCapture(p); } catch {}
+      if (avaitGlisse) {
+        glissements = Math.max(0, glissements - 1);
+        pont.finDeplacement();
+        if (raison !== 'relache') signaler('glisser-interrompu', {raison});
+      } else if (raison === 'relache') surClic?.();
+    }
+    finsDeGlissement.add(terminer);
     elem.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
       // Le panneau se saisit partout, sauf sur ses boutons, liens, suggestions et sa barre de défilement (qui gardent leur rôle).
       if (elem !== el.micro && (e.target.closest('button, a, iframe') || (e.target.clientWidth && e.offsetX >= e.target.clientWidth))) return;
-      depart = dernier = {x: e.screenX, y: e.screenY}; glisse = false;
-      elem.setPointerCapture(e.pointerId);
+      terminer('nouvel-appui');
+      depart = dernier = {x: e.screenX, y: e.screenY}; glisse = false; pointeur = e.pointerId;
+      try { elem.setPointerCapture(e.pointerId); } catch {}   // pointeur déjà relâché : le premier mouvement sans bouton finira le geste
     });
     elem.addEventListener('pointermove', e => {
-      if (!depart) return;
+      if (!depart || e.pointerId !== pointeur) return;
+      if (!(e.buttons & 1)) return terminer('sans-bouton');
       if (!glisse && Math.hypot(e.screenX - depart.x, e.screenY - depart.y) < 5) return;
-      glisse = true;
+      if (!glisse) { glisse = true; glissements++; }
       const dx = Math.round(e.screenX - dernier.x), dy = Math.round(e.screenY - dernier.y);
       if (dx || dy) { pont.deplacer(dx, dy); dernier = {x: dernier.x + dx, y: dernier.y + dy}; }
     });
-    const fin = e => {
-      if (!depart) return;
-      depart = null;
-      if (glisse) pont.finDeplacement(); else if (e.type === 'pointerup') surClic?.();
-    };
-    elem.addEventListener('pointerup', fin);
-    elem.addEventListener('pointercancel', fin);
+    elem.addEventListener('pointerup', e => { if (e.pointerId === pointeur) terminer('relache'); });
+    elem.addEventListener('pointercancel', e => { if (e.pointerId === pointeur) terminer('annule'); });
+    elem.addEventListener('lostpointercapture', e => { if (e.pointerId === pointeur) terminer('capture-perdue'); });
     elem.addEventListener('keydown', e => { if (surClic && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); surClic(); } });
   }
+  const panneau = document.querySelector('#panneau');
   glissable(el.micro, clicMicro);
-  glissable(document.querySelector('#panneau'), null);   // tout le panneau se déplace et garde sa place (06/10, demande d'Ameur)
+  glissable(panneau, null);   // tout le panneau se déplace et garde sa place (06/10, demande d'Ameur)
+  const finirGlissements = raison => { for (const f of finsDeGlissement) f(raison); };
+  self.addEventListener?.('blur', () => finirGlissements('blur'));
+  document.addEventListener?.('visibilitychange', () => { if (document.visibilityState === 'hidden') finirGlissements('cachee'); });
+
+  // Clic droit sur l'icône ou le panneau (09/10/2026) : petit menu d'Electron (replier, recharger, quitter), qui marche sans focus.
+  // En plein écran, la zone de notification est hors d'atteinte : c'était la seule façon de fermer le copilote.
+  for (const e of [el.micro, panneau]) e?.addEventListener('contextmenu', ev => { ev.preventDefault(); finirGlissements('menu'); pont.menu?.(); });
+  // « Replier » du menu : Electron a déjà ramené la fenêtre à l'icône ; la page suit (réponse gardée, comme « Réduire »).
+  pont.onCommande?.(c => {
+    if (c?.action !== 'replier') return;
+    finirGlissements('replier');
+    if (etat === 'repos' || !corps.classList.contains('agrandi')) agrandir(false); else reduire();
+  });
 
   el.repeter.addEventListener('click', () => lecteur.repeter());
   el.voix.addEventListener('click', async () => majVoix(await pont.basculerVoix()));
@@ -517,7 +568,6 @@
       + '.carousel{overflow-x:auto;white-space:nowrap;scrollbar-width:none}</style><div class="container"><div class="carousel">'
       + '<a class="chip" href="https://www.google.com/search?q=ck3+fabricate+hook">ck3 fabricate hook</a> '
       + '<a class="chip" href="https://www.google.com/search?q=ck3+1.20+hooks">ck3 1.20 hooks</a></div></div>'};
-  const pause = ms => new Promise(r => setTimeout(r, ms));
 
   function simulerEcoute(g) {
     const t0 = performance.now();
@@ -554,4 +604,12 @@
   }
   if (DEMO && params.get('etat')) figer(params.get('etat'));
   else if (params.get('coin')) corps.dataset.coin = params.get('coin');
+
+  // ---------- Battement (09/10/2026) ----------
+  // Toutes les 3 s, la page dit à Electron qu'elle tourne, et si le panneau est affiché. Sans battement pendant 10 s, Electron
+  // replie la fenêtre et recharge la page (puis arrête son processus, puis recrée la fenêtre) ; panneau caché dans une fenêtre
+  // restée grande, il la replie (un grand cadre transparent mangerait les clics du jeu).
+  const battre = () => { try { pont.battement?.({agrandi: corps.classList.contains('agrandi'), etat, garde: corps.classList.contains('garde'), glisse: glissements > 0}); } catch {} };
+  battre();
+  setInterval(battre, 3000);
 })();

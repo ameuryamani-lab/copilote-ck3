@@ -188,7 +188,8 @@ class FauxElement {
   addEventListener() {} append() {} closest() { return null; } setPointerCapture() {}
 }
 const sourceTextes = await readFile(path.join(PAGE, 'textes.js'), 'utf8'), sourceOverlay = await readFile(path.join(PAGE, 'overlay.js'), 'utf8');
-async function pageSansNavigateur({recherche = '', avecTextes = true, capture = {ok: true}} = {}) {
+// accelerer : les minuteurs de 5 s ou plus de la page passent 100 fois plus vite (délai du micro : 8 s → 80 ms).
+async function pageSansNavigateur({recherche = '', avecTextes = true, capture = {ok: true}, accelerer = false} = {}) {
   const elements = [...html.matchAll(/<(\w+)(\s[^>]*)?>([^<]*)/g)].map(([, balise, attributs = '', contenu]) =>
     new FauxElement(balise, Object.fromEntries([...attributs.matchAll(/\s([\w-]+)(?:="([^"]*)")?/g)].map(([, k, v]) => [k, v ?? ''])), contenu.trim()));
   const choisir = s => {
@@ -199,8 +200,10 @@ async function pageSansNavigateur({recherche = '', avecTextes = true, capture = 
   };
   const document = {documentElement: elements.find(e => e.balise === 'html'), body: elements.find(e => e.balise === 'body'),
     querySelector: s => elements.find(choisir(s)) || null, querySelectorAll: s => elements.filter(choisir(s)), createElement: b => new FauxElement(b)};
-  const rappels = {}, appels = [], erreurs = [], rejets = [];
-  const pont = {onRaccourci: f => { rappels.raccourci = f; }, onEtat: f => { rappels.etat = f; }, agrandir() {}, deplacer() {}, finDeplacement() {}, ecoute() {},
+  const rappels = {}, appels = [], erreurs = [], rejets = [], battements = [], evenements = [], tailles = [];
+  const pont = {onRaccourci: f => { rappels.raccourci = f; }, onEtat: f => { rappels.etat = f; }, onCommande: f => { rappels.commande = f; },
+    agrandir: oui => tailles.push(!!oui), deplacer() {}, finDeplacement() {}, ecoute() {},
+    battement: d => battements.push(d), evenement: (nom, d) => evenements.push([nom, d]), menu() {},
     ouvrirLien() {}, voix: async () => true, basculerVoix: async () => true};
   const octets = new TextEncoder();
   const fauxFetch = async (url, options = {}) => {
@@ -215,8 +218,10 @@ async function pageSansNavigateur({recherche = '', avecTextes = true, capture = 
       body: {getReader: () => ({read: () => lu ? new Promise(() => {}) : (lu = true, Promise.resolve({done: false, value: octets.encode(etape)}))})}};
   };
   const libre = f => (fn, ms) => { const t = f(fn, ms); t.unref?.(); return t; };   // minuteurs de la page : ne retiennent pas l'essai
+  const minuteur = accelerer ? (fn, ms) => libre(setTimeout)(fn, ms >= 5000 ? ms / 100 : ms) : libre(setTimeout);
+  // getUserMedia ne répond jamais (micro figé) : la page doit s'en sortir seule.
   const ctx = vm.createContext({document, location: {search: recherche}, URLSearchParams, URL, TextDecoder, AbortController, performance, fetch: fauxFetch,
-    setTimeout: libre(setTimeout), setInterval: libre(setInterval), clearTimeout, clearInterval, navigator: {mediaDevices: {getUserMedia: () => new Promise(() => {})}},
+    setTimeout: minuteur, setInterval: libre(setInterval), clearTimeout, clearInterval, navigator: {mediaDevices: {getUserMedia: () => new Promise(() => {})}},
     console: {log() {}, warn() {}, error: (...a) => erreurs.push(a.join(' '))}});
   ctx.self = ctx.window = ctx; ctx.copilote = pont;
   const surRejet = e => rejets.push(e?.message || String(e));
@@ -226,7 +231,7 @@ async function pageSansNavigateur({recherche = '', avecTextes = true, capture = 
   const attendreUnPeu = () => new Promise(r => setTimeout(r, 40));
   await attendreUnPeu();
   const texteDe = s => document.querySelector(s)?.textContent;
-  return {rappels, appels, erreurs, rejets, erreur, attendreUnPeu, texteDe, document, fin: () => process.off('unhandledRejection', surRejet)};
+  return {rappels, appels, erreurs, rejets, erreur, attendreUnPeu, texteDe, document, battements, evenements, tailles, fin: () => process.off('unhandledRejection', surRejet)};
 }
 
 const p1 = await pageSansNavigateur({recherche: '?demo=sse'});
@@ -237,7 +242,8 @@ try {
   p1.rappels.etat({langue: 'en'});
   const ecoute = [p1.texteDe('#attente-texte'), p1.texteDe('#statut'), p1.document.documentElement.lang, p1.document.querySelector('#micro').title];
   verifier('page sans navigateur : langue changée pendant l\'écoute → « Listening… » gardé (pas « Looking at your screen… »)', !p1.erreur && avant === 'CK3 n\'est pas lancé'
-    && JSON.stringify(ecoute) === JSON.stringify(['Listening…', 'Listening…', 'en', 'Ask a question (Ctrl+Shift+Space)']), p1.erreur || ecoute.join(' | '));
+    && JSON.stringify(ecoute) === JSON.stringify(['Listening…', 'Listening…', 'en', D.en.microInfo]) && D.en.microInfo.startsWith('Ask a question (Ctrl+Shift+Space)')
+    && D.en.microInfo.includes('Ctrl+Shift+Backspace'), p1.erreur || ecoute.join(' | '));
   p1.rappels.raccourci({etat: 'appui'});   // second appui : fin de la question, envoi
   await p1.attendreUnPeu();
   const question = p1.appels.find(a => a.url.startsWith('/api/jeu/question'));
@@ -247,6 +253,15 @@ try {
   verifier('page sans navigateur : question envoyée avec sa langue, étape en cours gardée quand la langue change pendant la réflexion',
     question?.url === '/api/jeu/question?langue=en' && question?.corps?.langue === 'en' && enRoute === 'Thinking…'
     && JSON.stringify(apres) === JSON.stringify(['Thinking…', 'Thinking…', 'Copilote CK3']) && !p1.rejets.length, `${question?.url} · ${apres.join(' | ')}${p1.rejets.length ? ' · ' + p1.rejets.join(', ') : ''}`);
+  // Santé de la page (09/10/2026) : battement dès le chargement (panneau non affiché), question envoyée signalée au journal sans
+  // son texte, et « Replier » d'Electron pendant la réflexion : panneau replié, réponse gardée.
+  const premier = p1.battements[0], envoyee = p1.evenements.find(([n, d]) => n === 'question' && d?.etape === 'envoyee');
+  const texteFuite = p1.evenements.some(([, d]) => /Thinking|réfléchis|hameçon/i.test(JSON.stringify(d)));
+  p1.rappels.commande?.({action: 'replier'});
+  const replie = !p1.document.body.classList.contains('agrandi') && p1.document.body.classList.contains('garde') && p1.tailles.at(-1) === false;
+  verifier('page sans navigateur : battement au chargement, question signalée (sans texte), « Replier » d\'Electron garde la réponse',
+    premier && premier.agrandi === false && premier.etat === 'repos' && !!envoyee && !texteFuite && replie,
+    `premier battement ${JSON.stringify(premier)} ; événements ${p1.evenements.map(([n, d]) => `${n}:${d?.etape || ''}`).join(', ')} ; replié ${replie}`);
 } finally { p1.fin(); }
 
 const p2 = await pageSansNavigateur({avecTextes: false, capture: {ok: false, erreur: 'CK3 n\'est pas lancé', code: 'pas-lance', bloquant: true}});
@@ -257,8 +272,38 @@ try {
   const vu = {etat: p2.document.body.dataset.etat, erreur: p2.texteDe('#erreur'), statut: p2.texteDe('#statut'), nom: p2.texteDe('strong'), micro: p2.document.querySelector('#micro').title};
   verifier('page sans textes.js : elle tourne quand même (textes d\'index.html, erreur du serveur affichée, signalé dans app.log)', !p2.erreur && !p2.rejets.length
     && p2.erreurs.some(e => /textes\.js manquant/.test(e)) && vu.etat === 'reponse' && vu.erreur === 'CK3 n\'est pas lancé' && typeof vu.statut === 'string'
-    && vu.nom === 'Copilote CK3' && vu.micro === 'Poser une question (Ctrl+Maj+Espace)', p2.erreur || p2.rejets.join(', ') || JSON.stringify(vu));
+    && vu.nom === 'Copilote CK3' && vu.micro === D.fr.microInfo && vu.micro.startsWith('Poser une question (Ctrl+Maj+Espace)') && vu.micro.includes('Ctrl+Maj+Retour arrière'),
+    p2.erreur || p2.rejets.join(', ') || JSON.stringify(vu));
 } finally { p2.fin(); }
+
+// Micro qui ne répond jamais (revue du 09/10/2026 : la page restait « en écoute » et ne réagissait plus aux clics) : un second
+// appui pendant le démarrage finit l'écoute en 1 s au plus (« Je n'ai rien entendu. ») ; seul, le démarrage abandonne au bout de
+// 8 s (ici accéléré) avec « Le micro ne répond pas », et l'icône réagit de nouveau.
+const attendreEtat = async (p, voulu, ms) => { const t = Date.now(); while (Date.now() - t < ms && p.document.body.dataset.etat !== voulu) await new Promise(r => setTimeout(r, 20)); return Date.now() - t; };
+const p3 = await pageSansNavigateur();
+try {
+  p3.rappels.raccourci({etat: 'appui'});
+  await p3.attendreUnPeu();
+  const enEcoute = p3.document.body.dataset.etat;
+  p3.rappels.raccourci({etat: 'appui'});
+  const ms = await attendreEtat(p3, 'reponse', 3000);
+  const vu = {enEcoute, apres: p3.document.body.dataset.etat, ms, erreur: p3.texteDe('#erreur')};
+  verifier('micro sans réponse : un second appui finit l\'écoute en 1 s au plus', !p3.erreur && !p3.rejets.length && enEcoute === 'ecoute' && vu.apres === 'reponse'
+    && ms < 1600 && vu.erreur === D.fr.rienEntendu, p3.erreur || p3.rejets.join(', ') || JSON.stringify(vu));
+} finally { p3.fin(); }
+const p4 = await pageSansNavigateur({accelerer: true, recherche: '?langue=en'});
+try {
+  p4.rappels.raccourci({etat: 'appui'});
+  await p4.attendreUnPeu();
+  const enEcoute = p4.document.body.dataset.etat;
+  const ms = await attendreEtat(p4, 'reponse', 2000);
+  const vu = {enEcoute, apres: p4.document.body.dataset.etat, ms, erreur: p4.texteDe('#erreur')};
+  p4.rappels.raccourci({etat: 'appui'});
+  await p4.attendreUnPeu();
+  vu.relance = p4.document.body.dataset.etat;
+  verifier('micro sans réponse : abandon seul au bout du délai, « The microphone is not responding », l\'icône réagit de nouveau', !p4.erreur && !p4.rejets.length
+    && enEcoute === 'ecoute' && vu.apres === 'reponse' && vu.erreur === D.en.microMuet && vu.relance === 'ecoute', p4.erreur || p4.rejets.join(', ') || JSON.stringify(vu));
+} finally { p4.fin(); }
 
 // Démo factice en anglais (champ langue du corps, sinon ?langue=en) ; langue inconnue -> français.
 const texteDe = s => s.evenements.filter(e => e.type === 'texte').map(e => e.delta).join('');

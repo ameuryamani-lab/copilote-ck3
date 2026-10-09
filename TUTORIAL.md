@@ -201,6 +201,9 @@ Prices checked on 7 October 2026; Google may change them.
 
 ## 11. Troubleshooting
 
+**The copilot is stuck over the game (nothing reacts, you can't move or close it).**
+Press **Ctrl+Shift+Backspace** (the erase key above Enter): the copilot starts fresh (icon collapsed, listening and voice stopped). Press it **twice** within 2 seconds to close it completely; even if it froze, it is closed by force after 4 seconds. The game does not receive these keys. You can also right-click the icon or the panel: **Collapse**, **Reload**, **Quit the copilot**. The copilot also watches itself: if it stops responding for about 10 seconds, it collapses and restarts on its own.
+
 **The icon does not show over the game.**
 The icon only shows while CK3 is the window in front. If you still don't see it, switch CK3 to window mode: press **Esc**, then **Settings** > **Graphics** > **Display Mode** > **Window**. Clicking the copilot's icon next to the clock also shows it for 15 seconds, and **Reset the icon and panel position** brings it back to its place.
 
@@ -457,6 +460,9 @@ Prix vérifiés le 7 octobre 2026 ; Google peut les changer.
 - **Offre gratuite de Google :** voir [la partie 2](#2-obtenir-une-clé-google-gemini).
 
 ### 11. En cas de problème
+
+**Le copilote reste bloqué sur le jeu (plus rien ne réagit, impossible de le déplacer ou de le fermer).**
+Appuie sur **Ctrl+Maj+Retour arrière** (la touche d'effacement, au-dessus d'Entrée) : le copilote repart à neuf (icône repliée, écoute et voix coupées). Appuie **deux fois** en moins de 2 secondes pour le fermer complètement ; même figé, il est arrêté de force au bout de 4 secondes. Le jeu ne reçoit pas ces touches. Tu peux aussi faire un clic droit sur l'icône ou le panneau : **Replier**, **Recharger**, **Quitter le copilote**. Le copilote se surveille aussi tout seul : s'il ne répond plus pendant une dizaine de secondes, il se replie et repart.
 
 **L'icône n'apparaît pas sur le jeu.**
 L'icône ne s'affiche que quand CK3 est la fenêtre au premier plan. Si tu ne la vois toujours pas, passe CK3 en mode fenêtre : appuie sur **Échap**, puis **Settings** > **Graphics** > **Display Mode** > **Window** (le jeu est en anglais). Un clic sur l'icône du copilote près de l'horloge l'affiche aussi 15 secondes, et **Replacer l'icône et le panneau** la remet à sa place.

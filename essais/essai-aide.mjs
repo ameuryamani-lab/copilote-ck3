@@ -6,9 +6,11 @@
 // 4. décision du raccourci (banc, dont le combo hors de CK3 laissé à l'appli), réinstallation du crochet, coût du rappel sur les
 // vraies frappes ; 5. erreur « CK3 n'est pas lancé » (aide sans crochet, faux nom de processus) ; 5 bis. capture lente : l'état en
 // attente derrière elle ne tue plus l'aide ; 6. relance après un arrêt brutal ; 7. Node tué : l'aide part seule ;
-// 8. après arreter(), aucun PowerShell enfant ne reste.
+// 8. après arreter(), aucun PowerShell enfant ne reste ; 9. raccourci d'urgence (09/10/2026) : le double Ctrl+Maj+Retour arrière
+// arrête de force un parent figé (faux parent : un Node qui dort ; commande « urgence », aucune touche), et laisse en paix un
+// parent qui quitte à temps. Le banc (4) couvre aussi la décision de Ctrl+Maj+Retour arrière.
 import {spawn, execFile} from 'node:child_process';
-import {writeFile, rm} from 'node:fs/promises';
+import {writeFile, readFile, rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -52,11 +54,12 @@ async function principal() {
   const essais = [], notes = [], pidsVus = new Set();
   const noter = (nom, reussi, details) => { essais.push({nom, reussi: !!reussi, details}); console.log(`${reussi ? 'OK  ' : 'ÉCHEC'} ${nom} : ${details}`); };
   const journal = {log: m => notes.push(m), warn: m => notes.push(m), error: m => notes.push(m)};
-  let raccourcis = 0;
+  let raccourcis = 0, urgencesVraies = 0;
 
   // 1. Démarrage
   const aide = creerAideWindows({journal});
   aide.on('raccourci', () => raccourcis++);
+  aide.on('secours', () => urgencesVraies++);
   let t = Date.now();
   const info = await aide.demarrer();
   pidsVus.add(aide.pid);
@@ -127,8 +130,8 @@ async function principal() {
 
   // 4. Raccourci : décision testée sur une instance à part (aucune touche envoyée), coût mesuré
   const banc = await aide.banc();
-  noter('décision Ctrl+Maj+Espace (banc)', banc.echecs.length === 0 && banc.nsDecision < 1000 && banc.nsPremierPlan < 200000,
-    `${banc.cas} cas (dont combo hors de CK3 laissé à l'appli), échecs : ${banc.echecs.length ? banc.echecs.join(', ') : 'aucun'} ; décision ${banc.nsDecision} ns, lecture Ctrl/Maj/Alt ${banc.nsTroisTouches} ns, test du premier plan ${Math.round(banc.nsPremierPlan / 100) / 10} µs (CK3 devant : ${banc.jeuDevant ? 'oui' : 'non'})`);
+  noter('décision Ctrl+Maj+Espace et Ctrl+Maj+Retour arrière (banc)', banc.echecs.length === 0 && banc.cas >= 38 && banc.nsDecision < 1000 && banc.nsPremierPlan < 200000,
+    `${banc.cas} cas (dont combos hors de CK3 laissés à l'appli, double appui d'urgence, horloge rebouclée), échecs : ${banc.echecs.length ? banc.echecs.join(', ') : 'aucun'} ; décision ${banc.nsDecision} ns, lecture Ctrl/Maj/Alt ${banc.nsTroisTouches} ns, test du premier plan ${Math.round(banc.nsPremierPlan / 100) / 10} µs (CK3 devant : ${banc.jeuDevant ? 'oui' : 'non'})`);
 
   // 5. Erreur « CK3 n'est pas lancé » : seconde aide sans crochet, avec un nom de processus qui n'existe pas
   const factice = creerAideWindows({journal, processus: 'processus-absent-copilote', crochet: false});
@@ -197,6 +200,48 @@ while ($null -ne ($l = [Console]::In.ReadLine())) {
     noter('aide orpheline', false, `l'enfant n'a pas donné le pid de son aide (${ligne.slice(0, 200)})`);
   }
 
+  // 9. Raccourci d'urgence, voie de secours : le double Ctrl+Maj+Retour arrière est signalé (« quitter ») ; si le parent n'est
+  // pas parti 4 s plus tard (Electron figé), l'aide l'arrête elle-même, le note dans le journal, puis part. Faux parent : un Node
+  // qui dort ; commande « urgence » (même chemin que le crochet), aucune touche.
+  const dormeur = () => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], {windowsHide: true, stdio: 'ignore'});
+  const fauxJournal = path.join(os.tmpdir(), `copilote-urgence-${process.pid}.log`);
+  await rm(fauxJournal, {force: true});
+  const fige = dormeur();
+  const urgence = creerAideWindows({journal, crochet: false, processus: 'processus-absent-copilote', parent: fige.pid, fichierJournal: fauxJournal});
+  const actions = [];
+  urgence.on('secours', d => actions.push(d.action));
+  const infoUrgence = await urgence.demarrer();
+  const pidUrgence = urgence.pid;
+  pidsVus.add(pidUrgence);
+  t = Date.now();
+  await urgence.essaiUrgence();
+  const figeArrete = await attendreMort(fige.pid, 9000);
+  const msArretForce = Date.now() - t;
+  const aidePartie = await attendreMort(pidUrgence, 3000);
+  const ligneUrgence = (await readFile(fauxJournal, 'utf8').catch(() => '')).trim();
+  noter('urgence : Electron figé arrêté de force par l\'aide', infoUrgence.parentSurveille && actions.includes('quitter') && figeArrete && msArretForce >= 3500 && msArretForce < 7500
+    && aidePartie && /^\d\d\/\d\d\/\d{4} \d\d:\d\d:\d\d ERREUR .*arrêté de force \(fait\)/.test(ligneUrgence),
+    `événement ${actions.join(', ') || 'AUCUN'} ; faux parent ${figeArrete ? `arrêté ${msArretForce} ms après la demande` : 'TOUJOURS VIVANT'} ; aide ${aidePartie ? 'partie ensuite' : 'ENCORE LÀ'} ; journal : « ${ligneUrgence.slice(0, 160)} »`);
+  await urgence.arreter();   // l'aide repartie seule a pu être relancée par Node (pour lui, elle est tombée)
+  try { fige.kill(); } catch {}
+
+  // 9 bis. Electron qui quitte à temps : son entrée se ferme avant les 4 s, l'aide part sans toucher au parent.
+  const sage = dormeur();
+  const urgence2 = creerAideWindows({journal, crochet: false, processus: 'processus-absent-copilote', parent: sage.pid, fichierJournal: fauxJournal});
+  await urgence2.demarrer();
+  const pidUrgence2 = urgence2.pid;
+  pidsVus.add(pidUrgence2);
+  await urgence2.essaiUrgence();
+  await pause(300);
+  await urgence2.arreter();
+  await pause(4500);
+  const epargne = vivant(sage.pid), aide2Partie = !vivant(pidUrgence2);
+  try { sage.kill(); } catch {}
+  const lignes = (await readFile(fauxJournal, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).length;
+  noter('urgence : Electron parti à temps, rien n\'est arrêté', epargne && aide2Partie && lignes === 1,
+    `parent ${epargne ? 'intact' : 'ARRÊTÉ À TORT'} 4,8 s après la demande, aide ${aide2Partie ? 'partie' : 'ENCORE LÀ'}, lignes de journal ${lignes} (1 attendue : celle de l'essai précédent)`);
+  await rm(fauxJournal, {force: true});
+
   // 4 ter. Réinstallation du crochet (Windows retire en silence un crochet qui a tardé ; l'aide le remet toutes les 5 min)
   const avantReinst = await aide.diagnostic();
   await aide.reinstaller();
@@ -224,6 +269,7 @@ while ($null -ne ($l = [Console]::In.ReadLine())) {
     `arreter() en ${msArret} ms (PowerShell ${dernier}) ; pids suivis encore vivants : ${survivants.length ? survivants.join(', ') : 'aucun'} ; PowerShell enfants : ${enfants ? (enfants.length ? enfants.join(', ') : 'aucun') : 'liste impossible'}`);
 
   if (raccourcis) console.log(`(${raccourcis} événement(s) raccourci reçus pendant l'essai : Ctrl+Maj+Espace a été pressé)`);
+  if (urgencesVraies) console.log(`(${urgencesVraies} événement(s) d'urgence reçus pendant l'essai : Ctrl+Maj+Retour arrière a été pressé dans CK3)`);
   if (notes.length) console.log(`Journal de l'aide :\n  ${notes.join('\n  ')}`);
   const reussi = essais.every(e => e.reussi);
   console.log(JSON.stringify({reussi, essais}));

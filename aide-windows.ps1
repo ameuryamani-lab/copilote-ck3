@@ -10,10 +10,15 @@
 #   (pour que Node voie si l'écran a changé), la souris et depuis quand elle est immobile (position lue en lecture seule,
 #   10 fois par seconde, 25 pendant une question) ; l'image reste en mémoire ici et « capturer » avec son jeton l'encode telle
 #   quelle. Rien n'est imprimé quand CK3 n'est pas au premier plan.
+# - raccourci d'urgence (09/10/2026 : l'icône restait figée au-dessus du jeu, impossible à déplacer ou à fermer, et sans icône
+#   dans la barre des tâches) : Ctrl+Maj+Retour arrière dans CK3 est avalé comme le combo principal et signalé « reinitialiser » ;
+#   deux fois en moins de 2 s, « quitter ». Si Electron n'a pas quitté 4 s après (son fil principal bloqué ne lit plus rien),
+#   l'aide l'arrête elle-même (-Parent : pid d'Electron) et le note dans app.log (-Journal) : seule écriture sur le disque de
+#   l'aide, une ligne de texte.
 # Les messages pour Ameur sont en français côté Node (aide-windows.mjs) : ici, seulement des codes ASCII.
 # C# 5 seulement (PowerShell 5.1) : pas de $"", pas de =>, pas de ?. Add-Type traite les avertissements comme des erreurs
 # (une variable inutilisée suffit à tout bloquer) : relancer essais/essai-aide.mjs après chaque retouche.
-param([string]$Processus = 'ck3', [switch]$SansCrochet)
+param([string]$Processus = 'ck3', [switch]$SansCrochet, [int]$Parent = 0, [string]$Journal = '')
 $ErrorActionPreference = 'Stop'
 # Erreurs de PowerShell en UTF-8 sur stderr : Node les lit ainsi pour le journal.
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
@@ -47,18 +52,24 @@ namespace CopiloteCk3
   // Décision du raccourci, séparée du crochet : on peut la tester (commande banc) sans envoyer la moindre touche au système.
   public sealed class Raccourci
   {
-    public const int VK_SPACE = 0x20;
+    public const int VK_SPACE = 0x20, VK_BACK = 0x08;
+    public const int DOUBLE_MS = 2000;   // deux Ctrl+Maj+Retour arrière à moins de 2 s d'écart : quitter
     bool tenu;        // l'appui de Espace a été avalé : son relâchement doit l'être aussi, sinon CK3 verrait un relâchement orphelin
     int dernier;      // horodatage (ms, horloge du clavier) du dernier événement Espace avalé
+    bool tenuUrgence; // même chose pour Retour arrière (raccourci d'urgence)
+    int dernierUrgence;
+    bool premierUrgence; int tPremierUrgence;   // un premier appui d'urgence attend peut-être son second
     long horsJeu;     // combos laissés à une autre appli (pour le diagnostic)
-    public bool Tenu { get { return tenu; } }
+    public bool Tenu { get { return tenu || tenuUrgence; } }
     public long HorsJeu { get { return horsJeu; } }
 
-    // Retourne true s'il faut avaler la touche ; evt = "appui", "relache" ou null. jeu : CK3 a la fenêtre au premier plan.
-    // Ailleurs, Ctrl+Maj+Espace reste à l'appli (espace insécable de Word, sélection d'Excel...) : ni avalé, ni signalé.
+    // Retourne true s'il faut avaler la touche ; evt = "appui", "relache", "reinitialiser", "quitter" ou null. jeu : CK3 a la
+    // fenêtre au premier plan. Ailleurs, Ctrl+Maj+Espace reste à l'appli (espace insécable de Word, sélection d'Excel...) et
+    // Ctrl+Maj+Retour arrière aussi : ni avalés, ni signalés.
     public bool Traiter(int vk, bool enfonce, bool ctrl, bool shift, bool alt, bool jeu, int temps, out string evt)
     {
       evt = null;
+      if (vk == VK_BACK) return Urgence(enfonce, ctrl && shift && !alt, jeu, temps, out evt);
       if (vk != VK_SPACE) return false;
       bool combo = ctrl && shift && !alt;   // Alt exclu : sur AZERTY, AltGr envoie Ctrl+Alt et ne doit pas déclencher le copilote.
       if (enfonce)
@@ -78,6 +89,32 @@ namespace CopiloteCk3
       }
       if (!tenu) return false;
       tenu = false; evt = "relache"; return true;
+    }
+
+    // Ctrl+Maj+Retour arrière dans CK3 : « reinitialiser », ou « quitter » s'il suit un premier appui de moins de 2 s. Comme le
+    // combo principal, CK3 n'en voit ni l'appui, ni la répétition, ni le relâchement ; un relâchement perdu (1,5 s sans
+    // répétition) libère la touche.
+    bool Urgence(bool enfonce, bool combo, bool jeu, int temps, out string evt)
+    {
+      evt = null;
+      if (enfonce)
+      {
+        if (tenuUrgence)
+        {
+          if (unchecked(temps - dernierUrgence) < 1500) { dernierUrgence = temps; return true; }
+          tenuUrgence = false;
+        }
+        if (!combo) return false;
+        if (!jeu) { horsJeu++; return false; }
+        tenuUrgence = true; dernierUrgence = temps;
+        int ecart = unchecked(temps - tPremierUrgence);
+        bool second = premierUrgence && ecart >= 0 && ecart <= DOUBLE_MS;
+        premierUrgence = !second; tPremierUrgence = temps;
+        evt = second ? "quitter" : "reinitialiser";
+        return true;
+      }
+      if (!tenuUrgence) return false;
+      tenuUrgence = false; return true;
     }
   }
 
@@ -159,7 +196,8 @@ namespace CopiloteCk3
     const uint WM_QUIT = 0x12, WM_TIMER = 0x113;
     const int LLKHF_UP = 0x80;
     const uint GA_ROOT = 2;
-    const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000, PROCESS_TERMINATE = 0x0001, SYNCHRONIZE = 0x00100000;
+    public const int DELAI_ARRET_FORCE_MS = 4000;   // « quitter » : Electron a ce délai pour partir seul
 
     // ---------- état ----------
     static string nomProcessus = "ck3";
@@ -191,9 +229,20 @@ namespace CopiloteCk3
     static Thread filSouris;
     static long sourisDebut, sourisBouge, sourisJusqua;
 
-    public static void Executer(string processus, bool avecCrochet)
+    // Raccourci d'urgence : Electron (poignée ouverte dès le démarrage, pour viser ce processus-là même si son pid est réutilisé),
+    // app.log, demande de « quitter » levée par le crochet, heure (Stopwatch) de la dernière commande reçue d'Electron.
+    static IntPtr hParent = IntPtr.Zero;
+    static string fichierJournal;
+    static readonly ManualResetEvent quitterDemande = new ManualResetEvent(false);
+    static Thread filUrgence;
+    static long derniereCommande, urgences;
+
+    public static void Executer(string processus, bool avecCrochet, int parent, string journal)
     {
       if (!string.IsNullOrEmpty(processus)) nomProcessus = processus;
+      if (parent > 0) hParent = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, false, (uint)parent);
+      fichierJournal = string.IsNullOrEmpty(journal) ? null : journal;
+      derniereCommande = Stopwatch.GetTimestamp();
       bool dpiProcessus = false;
       try { dpiProcessus = SetProcessDpiAwarenessContext(PER_MONITOR_V2); } catch (Exception) { }
       try { SetThreadDpiAwarenessContext(PER_MONITOR_V2); } catch (Exception) { }
@@ -211,17 +260,58 @@ namespace CopiloteCk3
       sourisDebut = sourisBouge = Stopwatch.GetTimestamp();
       filSouris = new Thread(BoucleSouris); filSouris.IsBackground = true; filSouris.Start();
       filTravail = new Thread(Travailleur); filTravail.IsBackground = true; filTravail.Start();
+      filUrgence = new Thread(BoucleUrgence); filUrgence.IsBackground = true; filUrgence.Start();
 
       Envoyer(new Obj().Bool("pret", true).Ent("pid", Process.GetCurrentProcess().Id).Txt("processus", nomProcessus)
-        .Bool("crochet", hCrochet != IntPtr.Zero).Ent("erreurCrochet", erreurCrochet).Bool("dpiProcessus", dpiProcessus).ToString());
+        .Bool("crochet", hCrochet != IntPtr.Zero).Ent("erreurCrochet", erreurCrochet).Bool("dpiProcessus", dpiProcessus)
+        .Bool("parentSurveille", hParent != IntPtr.Zero).ToString());
 
       // Lecture de stdin sur le fil principal : la fin du flux (Node arrêté ou mort) ferme l'aide aussitôt,
       // même si une capture est en cours sur le fil de travail.
       StreamReader entree = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false));
       string ligne;
-      try { while ((ligne = entree.ReadLine()) != null) { if (ligne.Trim().Length > 0) fileCommandes.Add(ligne); } }
+      try
+      {
+        while ((ligne = entree.ReadLine()) != null)
+        {
+          Interlocked.Exchange(ref derniereCommande, Stopwatch.GetTimestamp());
+          if (ligne.Trim().Length > 0) fileCommandes.Add(ligne);
+        }
+      }
       catch (Exception) { }
       Quitter(0);
+    }
+
+    // « quitter » (Ctrl+Maj+Retour arrière deux fois dans CK3) : Electron quitte et ferme notre entrée, ce qui arrête l'aide avant
+    // la fin du délai. Toujours là après 4 s : son fil principal est bloqué (fenêtre figée au-dessus du jeu, menus injoignables
+    // en plein écran). L'aide l'arrête alors elle-même, le note dans app.log, puis part.
+    static void BoucleUrgence()
+    {
+      quitterDemande.WaitOne();
+      Thread.Sleep(DELAI_ARRET_FORCE_MS);
+      if (hParent == IntPtr.Zero) return;
+      long silence = (Stopwatch.GetTimestamp() - Interlocked.Read(ref derniereCommande)) * 1000 / Stopwatch.Frequency;
+      bool arrete = TerminateProcess(hParent, 1);
+      NoterJournal("Ctrl+Maj+Retour arrière deux fois : le copilote n'a pas quitté en " + (DELAI_ARRET_FORCE_MS / 1000)
+        + " s, l'aide Windows l'a arrêté de force (" + (arrete ? "fait" : "échec") + ") ; dernière commande reçue de lui il y a "
+        + silence.ToString(CultureInfo.InvariantCulture) + " ms");
+      Quitter(0);
+    }
+
+    // Même chemin que le crochet (événement « quitter » + arrêt forcé différé) : appelé par le crochet, ou par la commande
+    // « urgence » des essais (aucune touche).
+    static void DemanderQuitter()
+    {
+      urgences++;
+      quitterDemande.Set();
+    }
+
+    // Une ligne dans app.log, au format du journal d'Electron (heure locale du PC).
+    static void NoterJournal(string texte)
+    {
+      if (fichierJournal == null) return;
+      try { File.AppendAllText(fichierJournal, DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss", CultureInfo.InvariantCulture) + " ERREUR " + texte + "\n", new UTF8Encoding(false)); }
+      catch (Exception) { }
     }
 
     static void Quitter(int code)
@@ -287,6 +377,7 @@ namespace CopiloteCk3
           else if (cmd == "diagnostic") res = Diagnostic();
           else if (cmd == "banc") res = Banc();
           else if (cmd == "reinstaller") res = DemanderReinstallation();
+          else if (cmd == "urgence") res = EssaiUrgence();
           else throw new ErreurAide("commande", "commande inconnue : " + cmd);
           Envoyer(new Obj().Brut("id", id).Bool("ok", true).Brut("res", res).ToString());
         }
@@ -648,6 +739,8 @@ namespace CopiloteCk3
       RuntimeHelpers.PrepareMethod(typeof(Aide).GetMethod("Crochet", BindingFlags.NonPublic | BindingFlags.Static).MethodHandle);
       RuntimeHelpers.PrepareMethod(typeof(Aide).GetMethod("Envoyer", BindingFlags.NonPublic | BindingFlags.Static).MethodHandle);
       RuntimeHelpers.PrepareMethod(typeof(Raccourci).GetMethod("Traiter").MethodHandle);
+      RuntimeHelpers.PrepareMethod(typeof(Raccourci).GetMethod("Urgence", BindingFlags.NonPublic | BindingFlags.Instance).MethodHandle);
+      RuntimeHelpers.PrepareMethod(typeof(Aide).GetMethod("DemanderQuitter", BindingFlags.NonPublic | BindingFlags.Static).MethodHandle);
       RuntimeHelpers.PrepareMethod(typeof(Aide).GetMethod("PremierPlanJeu", BindingFlags.NonPublic | BindingFlags.Static).MethodHandle);
       RuntimeHelpers.PrepareMethod(typeof(Aide).GetMethod("NomExe", BindingFlags.NonPublic | BindingFlags.Static).MethodHandle);
       procCrochet = new HookProc(Crochet);
@@ -669,8 +762,8 @@ namespace CopiloteCk3
       hCrochet = IntPtr.Zero;
     }
 
-    // Appelé par Windows pour CHAQUE touche du système : rester trivial. Pour une touche autre qu'Espace,
-    // une lecture mémoire et une comparaison ; l'écriture vers Node se fait sur un autre fil.
+    // Appelé par Windows pour CHAQUE touche du système : rester trivial. Pour une touche autre qu'Espace ou Retour arrière,
+    // une lecture mémoire et deux comparaisons ; l'écriture vers Node et l'arrêt forcé se font sur d'autres fils.
     static IntPtr Crochet(int nCode, IntPtr wParam, IntPtr lParam)
     {
       long debut = Stopwatch.GetTimestamp();
@@ -678,7 +771,7 @@ namespace CopiloteCk3
       if (nCode >= 0)
       {
         int vk = Marshal.ReadInt32(lParam);   // KBDLLHOOKSTRUCT.vkCode
-        if (vk == Raccourci.VK_SPACE)
+        if (vk == Raccourci.VK_SPACE || vk == Raccourci.VK_BACK)
         {
           int drapeaux = Marshal.ReadInt32(lParam, 8), temps = Marshal.ReadInt32(lParam, 12);
           bool enfonce = (drapeaux & LLKHF_UP) == 0;
@@ -687,12 +780,13 @@ namespace CopiloteCk3
           bool jeu = enfonce && ctrl && shift && !alt ? PremierPlanJeu() : true;
           string evt;
           avaler = raccourci.Traiter(vk, enfonce, ctrl, shift, alt, jeu, temps, out evt);
-          espaces++;
+          if (vk == Raccourci.VK_SPACE) espaces++;
           if (avaler) avales++;
           if (evt != null)
           {
             long t = (long)(DateTime.UtcNow - epoque).TotalMilliseconds;
             Envoyer("{\"evt\":\"raccourci\",\"etat\":\"" + evt + "\",\"t\":" + t.ToString(CultureInfo.InvariantCulture) + "}");
+            if (evt == "quitter") DemanderQuitter();
           }
         }
         long duree = Stopwatch.GetTimestamp() - debut;
@@ -710,6 +804,16 @@ namespace CopiloteCk3
       return new Obj().Bool("demande", PostThreadMessage(idFilCrochet, WM_TIMER, IntPtr.Zero, IntPtr.Zero)).ToString();
     }
 
+    // Pour l'essai : le chemin du double Ctrl+Maj+Retour arrière (événement « quitter » puis arrêt forcé d'Electron s'il n'est
+    // pas parti dans les 4 s), sans aucune touche. Les essais passent un faux parent (-Parent).
+    static string EssaiUrgence()
+    {
+      long t = (long)(DateTime.UtcNow - epoque).TotalMilliseconds;
+      Envoyer("{\"evt\":\"raccourci\",\"etat\":\"quitter\",\"t\":" + t.ToString(CultureInfo.InvariantCulture) + "}");
+      DemanderQuitter();
+      return new Obj().Bool("parentSurveille", hParent != IntPtr.Zero).Ent("delaiMs", DELAI_ARRET_FORCE_MS).ToString();
+    }
+
     static double Micro(long ticks) { return ticks * 1000000.0 / Stopwatch.Frequency; }
 
     static string Diagnostic()
@@ -718,7 +822,7 @@ namespace CopiloteCk3
       return new Obj().Bool("crochet", hCrochet != IntPtr.Zero).Ent("erreurCrochet", erreurCrochet).Ent("appels", n).Ent("espaces", espaces)
         .Ent("avales", avales).Dec("microMax", Micro(ticksMax)).Dec("microMoyen", n > 0 ? Micro(ticksTotal) / n : 0)
         .Ent("reinstallations", reinstallations).Bool("tenu", raccourci.Tenu).Ent("horsJeu", raccourci.HorsJeu).Bool("premierPlanJeu", PremierPlanJeu())
-        .Ent("immobileMs", ImmobileMs()).ToString();
+        .Ent("immobileMs", ImmobileMs()).Ent("urgences", urgences).Bool("parentSurveille", hParent != IntPtr.Zero).ToString();
     }
 
     // Banc d'essai de la décision du raccourci, sur une instance à part : aucune touche n'est envoyée au système.
@@ -766,6 +870,46 @@ namespace CopiloteCk3
       // 10. Voie lente du test « CK3 au premier plan » : nom de l'exécutable lu par son pid (ici ce PowerShell).
       string nom = NomExe((uint)Process.GetCurrentProcess().Id); cas++;
       if (!string.Equals(nom, "powershell", StringComparison.OrdinalIgnoreCase)) echecs.Add("nom exe : " + (nom ?? "null"));
+
+      // Raccourci d'urgence Ctrl+Maj+Retour arrière (09/10/2026), sur une instance neuve.
+      const int RA = Raccourci.VK_BACK;
+      Raccourci u = new Raccourci();
+      // 11. Dans CK3 : avalé, « reinitialiser » une fois malgré la répétition (Tenu pendant l'appui), relâchement avalé sans événement.
+      a = u.Traiter(RA, true, true, true, false, true, 20000, out evt); cas++; if (!a || evt != "reinitialiser" || !u.Tenu) echecs.Add("urgence appui");
+      for (int i = 0; i < 3; i++) { a = u.Traiter(RA, true, true, true, false, true, 20500 + i * 33, out evt); cas++; if (!a || evt != null) echecs.Add("urgence repetition " + i); }
+      a = u.Traiter(RA, false, true, true, false, true, 20700, out evt); cas++; if (!a || evt != null || u.Tenu) echecs.Add("urgence relache");
+      // 12. Second appui 1,5 s après le premier : « quitter » ; un troisième juste après repart sur « reinitialiser ».
+      a = u.Traiter(RA, true, true, true, false, true, 21500, out evt); cas++; if (!a || evt != "quitter") echecs.Add("urgence double appui");
+      u.Traiter(RA, false, true, true, false, true, 21600, out evt);
+      a = u.Traiter(RA, true, true, true, false, true, 22000, out evt); cas++; if (!a || evt != "reinitialiser") echecs.Add("urgence troisieme appui");
+      u.Traiter(RA, false, true, true, false, true, 22100, out evt);
+      // 13. Second appui 2,5 s après : nouveau « reinitialiser », pas « quitter ».
+      a = u.Traiter(RA, true, true, true, false, true, 24500, out evt); cas++; if (!a || evt != "reinitialiser") echecs.Add("urgence appui tardif");
+      u.Traiter(RA, false, true, true, false, true, 24600, out evt);
+      // 14. Retour arrière seul, Ctrl+Retour arrière, AltGr+Maj+Retour arrière dans CK3 : passent, sans événement.
+      a = u.Traiter(RA, true, false, false, false, true, 30000, out evt); cas++; if (a || evt != null) echecs.Add("retour arriere seul");
+      a = u.Traiter(RA, false, false, false, false, true, 30050, out evt); cas++; if (a || evt != null) echecs.Add("retour arriere seul relache");
+      a = u.Traiter(RA, true, true, false, false, true, 30100, out evt); cas++; if (a || evt != null) echecs.Add("ctrl+retour arriere");
+      u.Traiter(RA, false, true, false, false, true, 30150, out evt);
+      a = u.Traiter(RA, true, true, true, true, true, 30200, out evt); cas++; if (a || evt != null) echecs.Add("altgr+maj+retour arriere");
+      u.Traiter(RA, false, true, true, true, true, 30250, out evt);
+      // 15. Dans une autre appli : ni avalé, ni signalé (compté hors jeu).
+      long horsJeuAvant = u.HorsJeu;
+      a = u.Traiter(RA, true, true, true, false, false, 31000, out evt); cas++; if (a || evt != null || u.Tenu) echecs.Add("urgence hors jeu");
+      a = u.Traiter(RA, false, true, true, false, false, 31100, out evt); cas++; if (a || evt != null) echecs.Add("urgence hors jeu relache");
+      if (u.HorsJeu != horsJeuAvant + 1) { cas++; echecs.Add("compte urgence hors jeu " + u.HorsJeu); }
+      // 16. Relâchement perdu : 5 s plus tard, un Retour arrière seul repasse à CK3.
+      u.Traiter(RA, true, true, true, false, true, 40000, out evt);
+      a = u.Traiter(RA, true, false, false, false, true, 45000, out evt); cas++; if (a || evt != null || u.Tenu) echecs.Add("urgence relache perdu");
+      u.Traiter(RA, false, false, false, false, true, 45050, out evt);
+      // 17. Le combo principal n'est pas touché par l'urgence (états séparés) : Ctrl+Maj+Espace toujours « appui ».
+      a = u.Traiter(0x20, true, true, true, false, true, 50000, out evt); cas++; if (!a || evt != "appui") echecs.Add("combo apres urgence");
+      a = u.Traiter(0x20, false, true, true, false, true, 50100, out evt); cas++; if (!a || evt != "relache") echecs.Add("combo apres urgence relache");
+      // 18. Horloge du clavier qui repasse par zéro (49 jours) : le double appui marche quand même.
+      Raccourci w = new Raccourci();
+      w.Traiter(RA, true, true, true, false, true, int.MaxValue - 500, out evt);
+      w.Traiter(RA, false, true, true, false, true, int.MaxValue - 400, out evt);
+      a = w.Traiter(RA, true, true, true, false, true, unchecked(int.MaxValue + 700), out evt); cas++; if (!a || evt != "quitter") echecs.Add("urgence horloge rebouclee");
 
       // Coût de la décision et de la lecture des touches de contrôle (lecture seule de l'état du clavier).
       Raccourci rb = new Raccourci();
@@ -886,4 +1030,4 @@ namespace CopiloteCk3
 '@
 
 Add-Type -TypeDefinition $source -ReferencedAssemblies System.Drawing -Language CSharp
-[CopiloteCk3.Aide]::Executer($Processus, -not $SansCrochet)
+[CopiloteCk3.Aide]::Executer($Processus, -not $SansCrochet, $Parent, $Journal)
