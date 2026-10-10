@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Rien ne sort de 127.0.0.1 : ni script, ni police, ni requête. Les styles en ligne servent aux suggestions Google (srcdoc). -->
+<!-- Scripts, polices, médias et requêtes (connect-src) restent sur 127.0.0.1 ; seules les images peuvent venir d'un site https (img-src :
+     le HTML des suggestions Google, dans le cadre srcdoc qui hérite de cette CSP, peut en contenir). Les styles en ligne servent à ces suggestions. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; media-src 'self' blob: data:; frame-src 'self'; object-src 'none'; form-action 'none'">
 <title data-t="nom">Copilote CK3</title>
 <link rel="stylesheet" href="overlay.css">

@@ -242,6 +242,30 @@ while ($null -ne ($l = [Console]::In.ReadLine())) {
     `parent ${epargne ? 'intact' : 'ARRÊTÉ À TORT'} 4,8 s après la demande, aide ${aide2Partie ? 'partie' : 'ENCORE LÀ'}, lignes de journal ${lignes} (1 attendue : celle de l'essai précédent)`);
   await rm(fauxJournal, {force: true});
 
+  // 10. Diagnostic du processus principal figé (10/10/2026) : parent vivant (faux parent : un Node qui dort) mais aucune commande
+  //     pendant plus de -SilenceMs (1 s ici, 30 s en vrai) → UNE ligne AVERT « Electron silencieux depuis N s » dans le journal,
+  //     une seule par silence ; une commande remet le compte à zéro, un nouveau silence donne une nouvelle ligne ; parent jamais
+  //     touché, aide jamais relancée.
+  const muet = dormeur();
+  const silence = creerAideWindows({journal, crochet: false, processus: 'processus-absent-copilote', parent: muet.pid, fichierJournal: fauxJournal, silenceMs: 1000});
+  await silence.demarrer();
+  const pidSilence = silence.pid;
+  pidsVus.add(pidSilence);
+  const lignesSilence = async () => (await readFile(fauxJournal, 'utf8').catch(() => '')).split('\n').filter(l => l.includes('Electron silencieux'));
+  await pause(2300);
+  const l1 = await lignesSilence();
+  await pause(1500);
+  const l2 = await lignesSilence();
+  await silence.etat();   // une commande : le silence est fini
+  await pause(2300);
+  const l3 = await lignesSilence();
+  const parentIntact = vivant(muet.pid), memeAide = silence.pid === pidSilence;
+  await silence.arreter();
+  try { muet.kill(); } catch {}
+  noter('Electron silencieux : une ligne par silence, parent intact, aide non relancée', l1.length === 1 && l2.length === 1 && l3.length === 2 && /AVERT Electron silencieux depuis [1-3] s/.test(l1[0]) && parentIntact && memeAide,
+    `${l1.length} ligne à 2,3 s, ${l2.length} à 3,8 s, ${l3.length} après une commande et 2,3 s ; parent ${parentIntact ? 'intact' : 'ARRÊTÉ'}, aide ${memeAide ? 'la même' : 'RELANCÉE'} ; « ${(l1[0] || '').slice(0, 110)} »`);
+  await rm(fauxJournal, {force: true});
+
   // 4 ter. Réinstallation du crochet (Windows retire en silence un crochet qui a tardé ; l'aide le remet toutes les 5 min)
   const avantReinst = await aide.diagnostic();
   await aide.reinstaller();

@@ -22,14 +22,16 @@ const MESSAGES = {
 const DELAIS = {etat: 5000, capturer: 15000, apercu: 15000, liberer: 5000, diagnostic: 5000, banc: 20000, reinstaller: 5000, urgence: 5000};
 const IMPRESSIONS = ['capturer', 'apercu'];   // commandes qui impriment CK3 (PrintWindow) et peuvent donc prendre du temps
 const MAX_RELANCES = 3;   // par minute
+const RELANCE_MS = 1000, RELANCE_MAX_MS = 10000;   // délai avant la relance : doublé à chaque fois (1 s, 2 s, 4 s avec MAX_RELANCES = 3 ; le plafond ne servirait qu'à un MAX_RELANCES plus grand)
 // Immobilité de la souris : -1 de l'aide (on l'ignore encore) devient null, pour que personne ne la prenne pour un mouvement.
 const immobile = ms => Number.isFinite(ms) && ms >= 0 ? ms : null;
 const NOUVEL_ESSAI_MS = 60000;   // après une panne, nouvel essai au plus tôt une minute plus tard
 
-// processus, crochet et script ne servent qu'aux essais (faux nom de processus, aide sans crochet, script cassé).
-// parent : pid du processus que le double Ctrl+Maj+Retour arrière arrête de force s'il n'a pas quitté seul (Electron passe le
-// sien ; 0 = aucun). fichierJournal : app.log, où l'aide note cet arrêt forcé (Electron, figé, ne peut plus le faire).
-export function creerAideWindows({journal = console, processus = 'ck3', crochet = true, script = SCRIPT, parent = 0, fichierJournal = null} = {}) {
+// processus, crochet, script et silenceMs ne servent qu'aux essais (faux nom de processus, aide sans crochet, script cassé,
+// silence d'Electron raccourci). parent : pid du processus que le double Ctrl+Maj+Retour arrière arrête de force s'il n'a pas
+// quitté seul (Electron passe le sien ; 0 = aucun). fichierJournal : app.log, où l'aide note cet arrêt forcé (Electron, figé,
+// ne peut plus le faire) et, depuis le 10/10/2026, « Electron silencieux depuis N s » (parent vivant, muet plus de 30 s).
+export function creerAideWindows({journal = console, processus = 'ck3', crochet = true, script = SCRIPT, parent = 0, fichierJournal = null, silenceMs = 0} = {}) {
   const aide = new EventEmitter();
   aide.setMaxListeners(50);
   const noter = (niveau, texte) => { try { (journal[niveau] || journal.log).call(journal, `Aide Windows : ${texte}`); } catch {} };
@@ -48,6 +50,7 @@ export function creerAideWindows({journal = console, processus = 'ck3', crochet 
     if (!crochet) args.push('-SansCrochet');
     if (Number.isInteger(parent) && parent > 0) args.push('-Parent', String(parent));
     if (fichierJournal) args.push('-Journal', String(fichierJournal));
+    if (Number.isInteger(silenceMs) && silenceMs > 0) args.push('-SilenceMs', String(silenceMs));
     // windowsHide : aucune console ne doit apparaître au-dessus du jeu.
     const p = spawn('powershell.exe', args, {windowsHide: true, stdio: ['pipe', 'pipe', 'pipe']});
     enfant = p;
@@ -121,7 +124,11 @@ export function creerAideWindows({journal = console, processus = 'ck3', crochet 
     relances = relances.filter(t => maintenant - t < 60000);
     if (relances.length >= MAX_RELANCES) return panne(`arrêtée ${MAX_RELANCES + 1} fois en une minute : capture et raccourci indisponibles`);
     relances.push(maintenant);
-    setTimeout(() => { if (!arret && !enPanne && !enfant) lancer(); }, 500);
+    // Délai croissant (10/10/2026 : 1 s, 2 s, 4 s ; la quatrième chute en une minute est une panne, ci-dessus) et une ligne de
+    // journal : une aide qui retombe aussitôt ne repart plus en rafale, et le raccourci ne reste jamais mort sans trace.
+    const delai = Math.min(RELANCE_MAX_MS, RELANCE_MS * 2 ** (relances.length - 1));
+    noter('warn', `relance dans ${delai / 1000} s (${relances.length}/${MAX_RELANCES} en une minute ; capture et raccourci indisponibles en attendant)`);
+    setTimeout(() => { if (!arret && !enPanne && !enfant) lancer(); }, delai);
   }
 
   function panne(message) {

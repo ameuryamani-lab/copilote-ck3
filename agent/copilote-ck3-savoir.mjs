@@ -3,11 +3,12 @@
 // l'Encyclopédie du jeu (concepts, leçons du tutoriel, conseils) est dans game\localization\english, exacte pour SA version,
 // alors que les guides du web et la mémoire des modèles datent d'avant la 1.20. L'index est mis en cache dans
 // memoire/copilote-ck3/savoir-<version>.json et refait tout seul quand Steam met le jeu à jour (rawVersion change).
+// Le jeu est cherché (10/10/2026) par COPILOTE_CK3_DIR, puis le registre de Steam, puis les dossiers par défaut : voir trouverJeu.
 import {readFile, writeFile, readdir, mkdir, access} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
 import path from 'node:path';
 
 const FORMAT = 6;   // à augmenter quand la forme du cache change : l'ancien cache est alors refait
-const DOSSIER_DEFAUT = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Crusader Kings III';
 const NOM_JEU = 'Crusader Kings III';
 
 // Fonction réservée -> extension (requires_dlc_flag / has_dlc_feature des fichiers du jeu). Les .dlc ne listent pas leurs
@@ -119,18 +120,41 @@ async function fichiers(dossier, filtre) {
   return tous;
 }
 
-// Jeu trouvé par les bibliothèques Steam (libraryfolders.vdf), sinon à l'emplacement par défaut.
-async function trouverJeu() {
-  const steams = [process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Steam'), 'C:\\Program Files (x86)\\Steam', 'C:\\Program Files\\Steam'].filter(Boolean);
-  for (const steam of [...new Set(steams)]) {
+// Steam d'après le registre, par reg.exe (aucun module tiers) : HKCU SteamPath (barres obliques « c:/program files (x86)/steam »,
+// normalisées), repli HKLM 32 bits InstallPath. Registre illisible ou pas Windows : liste vide.
+async function steamsDuRegistre() {
+  if (process.platform !== 'win32') return [];
+  const lire = (cle, valeur) => new Promise(ok => execFile('reg.exe', ['query', cle, '/v', valeur], {windowsHide: true, timeout: 5000},
+    (e, sortie) => { const m = !e && String(sortie).match(new RegExp(`${valeur}\\s+REG_SZ\\s+(.+)`, 'i')); ok(m ? path.normalize(m[1].trim()) : null); }));
+  return (await Promise.all([lire('HKCU\\Software\\Valve\\Steam', 'SteamPath'), lire('HKLM\\SOFTWARE\\WOW6432Node\\Valve\\Steam', 'InstallPath')])).filter(Boolean);
+}
+const estLeJeu = d => existe(path.join(d, 'launcher', 'launcher-settings.json'));
+
+// Dossier du jeu (ordre du 10/10/2026, test ECC : Steam hors de Program Files perdait l'Encyclopédie en silence) : dossierForce
+// (COPILOTE_CK3_DIR, accepté seulement s'il contient launcher\launcher-settings.json, sinon erreur claire), puis chaque Steam du
+// registre, puis les dossiers par défaut, et dans chacun ses bibliothèques (libraryfolders.vdf). Rien : rejet (code
+// 'jeu-introuvable', steams regardés) ; plus jamais un dossier par défaut présumé.
+async function trouverJeu(dossierForce = null) {
+  const force = String(dossierForce || '').trim();
+  if (force) {
+    if (await estLeJeu(force)) return force;
+    throw Object.assign(new Error(`COPILOTE_CK3_DIR=${force} : pas de launcher\\launcher-settings.json dans ce dossier (il doit être celui de Crusader Kings III)`), {code: 'dossier-force', dossier: force});
+  }
+  const steams = [...await steamsDuRegistre(), process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Steam'), 'C:\\Program Files (x86)\\Steam', 'C:\\Program Files\\Steam']
+    .filter(Boolean).map(s => path.normalize(s));
+  const uniques = [...new Map(steams.map(s => [s.toLowerCase().replace(/[\\/]+$/, ''), s])).values()];
+  const vus = [];
+  for (const steam of uniques) {
     const vdf = await readFile(path.join(steam, 'steamapps', 'libraryfolders.vdf'), 'utf8').catch(() => '');
+    if (!vdf && !await existe(steam)) continue;   // dossier absent : pas regardé
+    vus.push(steam);
     const bibliotheques = [...vdf.matchAll(/"path"\s+"([^"]+)"/g)].map(m => m[1].replace(/\\\\/g, '\\'));
     for (const b of [steam, ...bibliotheques]) {
       const d = path.join(b, 'steamapps', 'common', NOM_JEU);
-      if (await existe(path.join(d, 'launcher', 'launcher-settings.json'))) return d;
+      if (await estLeJeu(d)) return d;
     }
   }
-  return DOSSIER_DEFAUT;
+  throw Object.assign(new Error(`Crusader Kings III introuvable (Steam regardés : ${vus.join(' ; ') || 'aucun'}) : indique son dossier dans COPILOTE_CK3_DIR`), {code: 'jeu-introuvable', steams: vus});
 }
 
 export async function versionInstallee(dossierJeu) {
@@ -205,6 +229,9 @@ async function definitionsConcepts(dossierJeu) {
 async function construire(dossierJeu, version, journal) {
   const t0 = Date.now();
   const dossierLoc = path.join(dossierJeu, 'game', 'localization');
+  // Dossier des textes absent (installation incomplète, chemin faux) : erreur claire tout de suite, pas un index vide en silence
+  // (readdir rend [] sur un dossier absent : fichiers() ne s'en plaint pas).
+  if (!await existe(path.join(dossierLoc, 'english'))) throw new Error(`Encyclopédie illisible : ${path.join(dossierLoc, 'english')} est absent`);
   const loc = await chargerLocalisation(path.join(dossierLoc, 'english'));
   const defs = await definitionsConcepts(dossierJeu);
   const entrees = [], vus = new Set();
@@ -263,6 +290,7 @@ async function construire(dossierJeu, version, journal) {
     if (!en || en.length > 40 || /[…[$]/.test(en) || frN.length < (cle.startsWith('game_concept_') ? 2 : 4) || MOTS_VIDES_FR.has(frN) || normaliser(en) === frN) continue;
     glossaire.push([frN, en]);
   }
+  if (!entrees.length) throw new Error(`Encyclopédie vide : aucun texte lu dans ${path.join(dossierLoc, 'english')} (${loc.size} clés de traduction)`);
   journal.log?.(`Copilote CK3 : savoir ${version} construit en ${Date.now() - t0} ms (${nbConcepts} concepts, ${entrees.length - nbConcepts} leçons et conseils, ${glossaire.length} mots du lexique)`);
   return {format: FORMAT, version, cree: new Date().toISOString(), entrees, glossaire, parExtension};
 }
@@ -281,18 +309,20 @@ function indexer(entrees) {
   return {docs, df, moyenne};
 }
 
-// prenom : facultatif (COPILOTE_PRENOM) ; sans lui, les notes parlent du « joueur ».
-export async function chargerSavoirCk3({root, journal = console, prenom = null} = {}) {
+// prenom : facultatif (COPILOTE_PRENOM) ; sans lui, les notes parlent du « joueur ». dossierJeu : COPILOTE_CK3_DIR (facultatif).
+// Rejette (jeu introuvable, Encyclopédie vide) plutôt que de servir un savoir vide : l'appelant le dit au joueur.
+export async function chargerSavoirCk3({root, journal = console, prenom = null, dossierJeu: dossierForce = null} = {}) {
   const j = formesJoueur(prenom);
-  const dossierJeu = await trouverJeu();
+  const dossierJeu = await trouverJeu(dossierForce);
   const {version, nom} = await versionInstallee(dossierJeu);
   const extensions = await extensionsInstallees(dossierJeu);
   const dossierCache = path.join(root, 'memoire', 'copilote-ck3');
   const fichierCache = path.join(dossierCache, `savoir-${String(version).replace(/[^0-9A-Za-z._-]/g, '_')}.json`);
   let donnees = null;
-  try { donnees = JSON.parse(await readFile(fichierCache, 'utf8')); if (donnees.format !== FORMAT || donnees.version !== version) donnees = null; } catch {}
+  // Un cache vide (écrit par une version antérieure quand le jeu était illisible) ne compte pas : l'index est refait.
+  try { donnees = JSON.parse(await readFile(fichierCache, 'utf8')); if (donnees.format !== FORMAT || donnees.version !== version || !donnees.entrees?.length) donnees = null; } catch {}
   if (!donnees) {
-    donnees = await construire(dossierJeu, version, journal);
+    donnees = await construire(dossierJeu, version, journal);   // lève si rien n'a été lu : jamais de cache vide
     await mkdir(dossierCache, {recursive: true});
     await writeFile(fichierCache, JSON.stringify(donnees));
   }

@@ -42,11 +42,13 @@ You need:
 
 Steps:
 
-1. Download this folder: green **Code** button, then **Download ZIP**. Right-click the ZIP > **Extract All...**, for example to `C:\Games`: Windows creates a `copilote-ck3-main` folder there, the copilot's folder.
+1. Download this folder: green **Code** button, then **Download ZIP**. Right-click the ZIP > **Extract All...**, into a folder of your own user folder, for example `%USERPROFILE%\CK3-Copilot`: Windows creates a `copilote-ck3-main` folder there, the copilot's folder. Not in a folder shared by every account of the PC (such as `C:\Games`): `.env`, the file that holds your key, would be readable by the other Windows accounts. Not under `Program Files` either: the installation fails there without administrator rights.
 2. In the `copilote-ck3-main` folder, double-click **`Installer-Copilote-CK3.cmd`** (Windows may show it as `Installer-Copilote-CK3`, not the file named just `installer`). It checks Node.js (and offers to open nodejs.org if it is missing), installs Electron, the app's engine (about 150 MB), asks for your Gemini key (kept in `.env`, on your PC only) and creates a **CK3 Copilot** shortcut on the desktop. You can run it again at any time: it only does what is missing.
 3. Start CK3, then double-click **CK3 Copilot** on the desktop (or `Lancer-Copilote-CK3.cmd`). The microphone icon appears on the right of the screen.
 
 The **[step-by-step guide](TUTORIAL.md)** walks through each step with pictures, and has a troubleshooting section (icon not visible, microphone blocked, antivirus warning...).
+
+What is downloaded, and from where: the ZIP itself comes from GitHub over HTTPS (it changes with every commit, so there is no fixed checksum to compare it with). The installer then downloads from two places only: the packages listed in `package-lock.json` from registry.npmjs.org, each checked by npm against the integrity fingerprint recorded in that file, and Electron from the official releases on github.com (electron/electron), checked by Electron's own `install.js` against the SHA-256 sums shipped in the `electron` package. Nothing comes from the author's own servers, and nodejs.org is only ever opened in your browser.
 
 Manual install, for developers (Node.js 22.12 or newer):
 
@@ -63,7 +65,8 @@ The `install.js` line downloads Electron: since Electron 44, `npm install` no lo
 Optional settings in `.env` (in `.env.example` they are switched off by a `#` at the start of the line: delete the `#` and the space to use one):
 
 - `COPILOTE_LANGUE=en` or `fr`: the answer language until you pick one in the tray menu (otherwise your Windows language is used);
-- `COPILOTE_PRENOM=YourFirstName`: tells the copilot your first name, sent to Google with each question (without it, it simply talks to "the player").
+- `COPILOTE_PRENOM=YourFirstName`: tells the copilot your first name, sent to Google with each question (without it, it simply talks to "the player");
+- `COPILOTE_CK3_DIR=D:\SteamLibrary\steamapps\common\Crusader Kings III`: the game's folder, only if Steam is installed somewhere unusual and the copilot says it cannot find the game's Encyclopedia (by default it looks where Steam declares its libraries).
 
 Tested with CK3 1.20 (no expansion), in "Fullscreen" mode at 1920 × 1080, on a single screen.
 
@@ -77,7 +80,7 @@ Every question is logged with its cost in `journal/copilote-ck3/`.
 
 - The app only listens on your own PC (127.0.0.1): nobody on your network can reach it.
 - The microphone only opens when you ask.
-- Only the CK3 window is captured, never the rest of the screen, and only during a question. For each question, only your question, up to 4 views of the CK3 window (with close-ups around the mouse cursor), the last few exchanges and, if you set one, your first name are sent to Google (or to OpenAI as a fallback). The views stay in memory; only the main image of the last question is kept on disk (`memoire/copilote-ck3/derniere-capture.jpg`, replaced at every question) to help with troubleshooting.
+- Only the CK3 window is captured, never the rest of the screen, and only during a question. For each question, what goes to Google (or to OpenAI as a fallback) is: the recording of your question, up to 4 views of the CK3 window with close-ups around the mouse cursor (plus the cursor position and the window size), the game version and the list of expansions you own, the excerpts of the game's Encyclopedia that match your question, the last 4 exchanges of the past 10 minutes and, if you set one, your first name. Google may also run Google searches for the answer, and the answer text is sent again to be read aloud. Full list in the [guide](TUTORIAL.md#10-privacy). The views stay in memory; only the main image of the last question is kept on disk (`memoire/copilote-ck3/derniere-capture.jpg`, replaced at every question) to help with troubleshooting.
 - On Google's free tier, Google may use what you send to improve its products; on the paid tier, it does not.
 - Your key stays in `.env`, which is never published (see `.gitignore`).
 
@@ -92,8 +95,16 @@ Every question is logged with its cost in `journal/copilote-ck3/`.
 | `agent/copilote-jeu.mjs` | The brain: Gemini, Google Search, voice, and OpenAI as a fallback. |
 | `agent/copilote-ck3-savoir.mjs` | Reads the Encyclopedia of the installed game and caches it, rebuilt after every CK3 update. |
 | `page/` | The icon and the answer panel; `page/textes.js` holds the interface texts in both languages. |
-| `essais/` | Automated tests. `node essais/essai-page.mjs` is free; the others call the API and cost a few cents. |
+| `essais/` | Automated tests (see below). `node essais/essai-page.mjs` is free; the others call the API and cost a few cents. |
 | `TUTORIAL.md`, `docs/` | The step-by-step guide and its pictures. |
+
+### Tests
+
+- `node essais/essai-page.mjs`: the local server and the page. Free, no key needed.
+- `node essais/essai-aide.mjs`: the Windows helper (capture, keyboard hook, emergency shortcut, and a silent Electron: option `-SilenceMs` of `aide-windows.ps1` / `silenceMs` of `creerAideWindows`, tests only). Free; more is checked when CK3 is running.
+- `node essais/essai-cerveau.mjs [steps] --image=capture.jpg`: the brain with a fake Windows helper. It needs a **test image** (a JPEG of the CK3 window; without `--image=`, it uses the copilot's last troubleshooting capture, `memoire\copilote-ck3\derniere-capture.jpg`, or, failing that, a fake image, fine for the free steps) and the `.env` file (its key is only used by the paid steps). The steps `savoir`, `erreurs`, `regard` and `google` are free; `secours` makes one OpenAI call (`OPENAI_API_KEY` needed); the others call Gemini (a few cents). Options: `--langue=en`, `--question="…"`, `--sans-voix`, `--regenerer` (records the spoken test question again: paid).
+- `node essais/essai-bout-en-bout.mjs`: the real server, helper and brain on the real CK3 window: CK3 must be running, and each run costs about 1 to 1.5 cents (`--sans-question` is free).
+- `npx electron . --essai-fenetre`: the Electron app without showing anything (menus, watchdog, emergency shortcut), with the real helper but no keyboard hook. `COPILOTE_ESSAI_STUB=1` replaces the brain with a canned answer (no key, no cost); `COPILOTE_LANGUE=en` or `fr` forces the language of the test.
 
 ## Version française
 
@@ -105,9 +116,9 @@ Un copilote vocal pour Crusader Kings III, sous Windows. Une petite icône micro
 - **Utilisation :** Ctrl+Maj+Espace ou clic sur l'icône (garder les touches enfoncées pour parler comme avec un talkie-walkie).
 - **S'il reste bloqué** sur le jeu : clic droit sur l'icône ou le panneau pour **Replier / Recharger / Quitter**, ou **Ctrl+Maj+Retour arrière** pour le remettre à zéro ; **deux fois** en moins de 2 secondes pour le fermer, même s'il est figé. Le jeu ne reçoit pas ces touches.
 - **Il regarde pendant toute ta question :** de l'appui jusqu'à la fin de ta phrase, il garde un œil sur la fenêtre de CK3 (un coup d'œil léger environ une fois par seconde) et envoie jusqu'à 4 vues avec ta question. Tu peux donc dire « regarde ça » en survolant quelque chose. Astuce : arrête la souris une demi-seconde sur ce que tu veux lui montrer, le temps que l'info-bulle du jeu s'ouvre.
-- **Installation :** télécharge le ZIP (bouton vert **Code**, puis **Download ZIP**) et extrais-le, par exemple dans `C:\Jeux` : Windows y crée le dossier du copilote, `copilote-ck3-main`. Dans ce dossier, double-clique sur **`Installer-Copilote-CK3.cmd`** : il vérifie Node.js, installe Electron (environ 150 Mo), te demande ta clé Google Gemini et crée un raccourci **CK3 Copilot** sur le Bureau. Lance ensuite CK3, puis le raccourci. Tout est expliqué pas à pas, avec des images, dans le **[guide](TUTORIAL.md#version-française)**. Installation à la main pour les développeurs : les commandes de la partie anglaise.
+- **Installation :** télécharge le ZIP (bouton vert **Code**, puis **Download ZIP**) et extrais-le dans un dossier de ton propre dossier utilisateur, par exemple `%USERPROFILE%\CK3-Copilot` : Windows y crée le dossier du copilote, `copilote-ck3-main`. Pas dans un dossier commun à tous les comptes du PC (comme `C:\Jeux`) : `.env`, le fichier qui contient ta clé, y serait lisible par les autres comptes Windows ; pas sous `Program Files` non plus : l'installation y échoue sans droits d'administrateur. Ce qui est téléchargé, et d'où : le ZIP vient de GitHub en HTTPS ; l'installation ne télécharge ensuite que depuis registry.npmjs.org (paquets de `package-lock.json`, empreintes d'intégrité vérifiées) et github.com (Electron, sommes SHA-256 vérifiées), jamais depuis les serveurs de l'auteur. Dans ce dossier, double-clique sur **`Installer-Copilote-CK3.cmd`** : il vérifie Node.js, installe Electron (environ 150 Mo), te demande ta clé Google Gemini et crée un raccourci **CK3 Copilot** sur le Bureau. Lance ensuite CK3, puis le raccourci. Tout est expliqué pas à pas, avec des images, dans le **[guide](TUTORIAL.md#version-française)**. Installation à la main pour les développeurs : les commandes de la partie anglaise.
 - **Coût :** environ 1 cent par question jusqu'à fin 2026, près de 2 cents à partir du 1er janvier 2027 (Google double alors ses prix).
-- **Vie privée :** seule la fenêtre de CK3 est capturée, et seulement pendant une question. Seuls ta question, jusqu'à 4 vues de cette fenêtre (avec des zooms autour de la souris), les derniers échanges et, si tu l'as réglé, ton prénom partent chez Google. Ta clé reste sur ton PC.
+- **Vie privée :** seule la fenêtre de CK3 est capturée, et seulement pendant une question. Partent chez Google (ou chez OpenAI en secours) : l'enregistrement de ta question, jusqu'à 4 vues de cette fenêtre avec des zooms autour de la souris (plus la position du curseur et la taille de la fenêtre), la version du jeu et la liste de tes extensions, les extraits de l'Encyclopédie du jeu qui correspondent à ta question, les 4 derniers échanges des 10 dernières minutes et, si tu l'as réglé, ton prénom ; Google peut aussi faire des recherches Google pour répondre, et le texte de la réponse repart pour être lu à voix haute. Liste complète dans le [guide](TUTORIAL.md#10-vie-privée). Ta clé reste sur ton PC.
 - **Offre gratuite de Google :** la facturation est conseillée. Avec l'offre gratuite, ce que tu envoies peut servir à améliorer les produits de Google, et la recherche Google, que le copilote utilise à chaque réponse, n'est pas disponible : il peut ne pas répondre du tout (pas essayé ; voir le guide).
 - **Licence :** GNU GPL version 3 (GPL-3.0). Tu es libre d'utiliser, d'étudier, de modifier et de partager ce programme. Si tu distribues une version modifiée, elle doit rester sous GPL-3.0 et être accompagnée de son code source. Les polices Exo 2 et Rajdhani gardent leur propre licence, la SIL Open Font License 1.1.
 

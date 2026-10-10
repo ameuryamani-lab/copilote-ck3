@@ -11,7 +11,7 @@
 // (repli, rechargement, arrêt de son processus, fenêtre recréée) ; Ctrl+Maj+Retour arrière dans le jeu réinitialise le copilote,
 // deux fois le quitte (l'aide Windows l'arrête de force si Electron lui-même est figé) ; clic droit sur l'icône : petit menu ;
 // journal des moments clés dans app.log (questions, panneau, glissements, récupérations, processus arrêtés, erreurs de la page).
-import {app, BrowserWindow, ipcMain, session, screen, Tray, Menu, nativeImage, shell, globalShortcut, nativeTheme} from 'electron';
+import {app, BrowserWindow, ipcMain, session, screen, Tray, Menu, nativeImage, shell, globalShortcut, nativeTheme, dialog} from 'electron';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {mkdirSync, appendFileSync, readFileSync, writeFileSync, statSync, renameSync} from 'node:fs';
@@ -85,10 +85,16 @@ const langueValide = l => l === 'fr' || l === 'en' ? l : null;
 const MENU = {
   fr: {nom: 'Copilote CK3', voixOn: 'Voix activée', voixOff: 'Voix désactivée', oublier: 'Oublier la conversation',
     replacer: 'Replacer l\'icône et le panneau', langue: 'Langue / Language', reinitialiser: 'Réinitialiser le copilote (Ctrl+Maj+Retour arrière)',
-    quitter: 'Quitter (Ctrl+Maj+Retour arrière deux fois en moins de 2 s)', replier: 'Replier', recharger: 'Recharger', quitterCopilote: 'Quitter le copilote'},
+    quitter: 'Quitter (Ctrl+Maj+Retour arrière deux fois en moins de 2 s)', replier: 'Replier', recharger: 'Recharger', quitterCopilote: 'Quitter le copilote',
+    // Info-bulles de la zone de notification (10/10/2026) : page abandonnée après 3 récupérations, raccourci d'urgence refusé ;
+    // boîte de dialogue d'un démarrage raté.
+    arrete: 'Copilote CK3 arrêté : clic droit ici, « Réinitialiser le copilote »', urgenceRefusee: 'Copilote CK3 · Ctrl+Maj+Retour arrière pris par une autre appli : en cas de blocage, clic droit ici',
+    demarrageRate: 'Le Copilote CK3 n\'a pas pu démarrer', demarrageDetail: (cause, journal) => `Cause : ${cause}\n\nDétail dans le journal :\n${journal}`},
   en: {nom: 'CK3 Copilot', voixOn: 'Voice on', voixOff: 'Voice off', oublier: 'Forget the conversation',
     replacer: 'Reset the icon and panel position', langue: 'Langue / Language', reinitialiser: 'Reset the copilot (Ctrl+Shift+Backspace)',
-    quitter: 'Quit (Ctrl+Shift+Backspace twice within 2 s)', replier: 'Collapse', recharger: 'Reload', quitterCopilote: 'Quit the copilot'},
+    quitter: 'Quit (Ctrl+Shift+Backspace twice within 2 s)', replier: 'Collapse', recharger: 'Reload', quitterCopilote: 'Quit the copilot',
+    arrete: 'CK3 Copilot stopped: right-click here, “Reset the copilot”', urgenceRefusee: 'CK3 Copilot · Ctrl+Shift+Backspace taken by another app: if stuck, right-click here',
+    demarrageRate: 'The CK3 Copilot could not start', demarrageDetail: (cause, journal) => `Cause: ${cause}\n\nDetails in the log:\n${journal}`},
 };
 // Choix du menu (reglages.json), sinon COPILOTE_LANGUE (variable d'environnement ou .env), sinon la langue de Windows : fr… donne
 // le français, toute autre l'anglais. En essai, COPILOTE_LANGUE passe avant le réglage enregistré (l'essai force une langue).
@@ -238,7 +244,7 @@ async function rafraichirVisibilite() {
 // si CK3 est devant (aide prête mais crochet refusé), il n'est enregistré que pendant que CK3 est devant. Sans l'aide, on ne
 // peut pas le savoir : il reste enregistré, et l'aide est réessayée régulièrement pour en sortir. Ctrl+Maj+Retour arrière (urgence)
 // suit la même règle.
-let dernierSecours = 0, secoursVoulu = false, secoursEnregistre = false, urgenceEnregistree = false;
+let dernierSecours = 0, secoursVoulu = false, secoursEnregistre = false, urgenceEnregistree = false, urgenceRefuseeNotee = false;
 function surSecours() {
   if (Date.now() - dernierSecours < 400) return;   // Windows répète le raccourci tant que la touche est tenue
   dernierSecours = Date.now();
@@ -263,6 +269,13 @@ function ajusterSecours() {
   if (doit && !secoursEnregistre) {
     try { secoursEnregistre = globalShortcut.register('Control+Shift+Space', surSecours); } catch { secoursEnregistre = false; }
     if (secoursEnregistre && !urgenceEnregistree) try { urgenceEnregistree = globalShortcut.register('Control+Shift+Backspace', surUrgenceGlobale); } catch { urgenceEnregistree = false; }
+    // Urgence refusée par Windows (raccourci pris par une autre appli) : noté une fois (cette fonction tourne toutes les 3 s) et
+    // dit dans l'info-bulle de la zone de notification ; sans cela, Ameur ne saurait pas que le double appui ne le sauvera pas.
+    if (secoursEnregistre && !urgenceEnregistree && !urgenceRefuseeNotee) {
+      urgenceRefuseeNotee = true;
+      journal.warn('Raccourci d\'urgence Ctrl+Maj+Retour arrière refusé par Windows (pris par une autre appli) : en cas de blocage, menu de la zone de notification');
+      majTray();
+    } else if (urgenceEnregistree && urgenceRefuseeNotee) { urgenceRefuseeNotee = false; journal.log('Raccourci d\'urgence Ctrl+Maj+Retour arrière enregistré'); majTray(); }
   } else if (!doit && secoursEnregistre) {
     try { globalShortcut.unregister('Control+Shift+Space'); } catch {}
     if (urgenceEnregistree) try { globalShortcut.unregister('Control+Shift+Backspace'); } catch {}
@@ -342,7 +355,8 @@ function creerTray() {
   tray = new Tray(image);
   tray.on('click', () => {
     forceJusqua = Date.now() + 15000;
-    if (pageEnPanne) return recreerFenetre('clic sur la zone de notification');   // icône cachée après des plantages : nouvel essai
+    // Icône cachée après des plantages, ou page abandonnée par le chien de garde : nouvel essai (fenêtre et page neuves).
+    if (pageEnPanne || abandonNote) return recreerFenetre('clic sur la zone de notification');
     montrer(); fenetre?.moveTop();
   });
   majTray();
@@ -388,9 +402,11 @@ function ouvrirMenuIcone() {
   journal.log('Menu de l\'icône ouvert (clic droit)');
   try { menu.popup({window: f}); } catch (e) { clearTimeout(fermeture); journal.warn(`Menu de l'icône impossible : ${e.message}`); }
 }
+// Info-bulle d'après l'état (10/10/2026 : « arrêté » et « urgence refusée » étaient effacées à chaque changement de langue ou de
+// voix) ; elle suit aussi la langue.
 function majTray() {
   if (!tray) return;
-  tray.setToolTip(MENU[langue].nom);
+  tray.setToolTip(abandonNote ? MENU[langue].arrete : urgenceRefuseeNotee ? MENU[langue].urgenceRefusee : MENU[langue].nom);
   tray.setContextMenu(Menu.buildFromTemplate(modeleMenu()));
 }
 // Langue choisie dans le menu : gardée dans reglages.json, envoyée à la page (événement 'etat'), et la conversation est oubliée :
@@ -529,6 +545,7 @@ function recreerFenetre(raison) {
     noterChien('recreation');
     if (recuperation) { clearTimeout(recuperation.minuteur); recuperation = null; }
     if (pageEnPanne) { pageEnPanne = false; clearTimeout(minuteurPanne); journal.log('Page de l\'icône : nouvel essai après ses plantages'); }
+    if (abandonNote) { abandonNote = false; majTray(); journal.log('Page de l\'icône : nouvel essai après l\'abandon du chien de garde'); }
     const ancienne = fenetre;
     agrandi = false; ecouteJusqua = 0; ecouteDepuis = 0; glissementMain = null;
     const f = fenetre = creerFenetre();
@@ -608,23 +625,34 @@ function recupererPage(raison, {ecoute = false} = {}) {
   const maintenant = Date.now();
   while (recuperations.length && maintenant - recuperations[0] > CHIEN.fenetreRecuperations) recuperations.shift();
   if (recuperations.length >= CHIEN.maxRecuperations) {
-    // Page qui ne bat plus du tout (script cassé...) : on ne tourne pas en boucle ; la fenêtre reste repliée.
-    if (!abandonNote) journal.error(`Page toujours sans battement après ${CHIEN.maxRecuperations} récupérations en 10 min : abandon (fenêtre repliée)`);
-    abandonNote = true;
+    // Page qui ne bat plus du tout (script cassé...) : on ne tourne pas en boucle ; la fenêtre reste repliée. Dit aussi dans
+    // l'info-bulle de la zone de notification (10/10/2026 : une icône morte et muette), effacée à la recréation suivante.
+    if (!abandonNote) {
+      journal.error(`Page toujours sans battement après ${CHIEN.maxRecuperations} récupérations en 10 min : abandon (fenêtre repliée ; « ${MENU[langue].arrete} »)`);
+      abandonNote = true;
+      try { majTray(); } catch {}
+    }
     replierFenetre('récupération abandonnée');
     dernierBattement = maintenant;
     return;
   }
   recuperations.push(maintenant);
-  abandonNote = false;
+  if (abandonNote) { abandonNote = false; majTray(); }   // l'info-bulle « arrêté » ne doit pas survivre à une nouvelle récupération
   recuperation = {raison, debut: maintenant, etape: 'rechargement', minuteur: null, ecoute};
-  noterChien('detecte');
-  journal.warn(`Page de l'icône sans réponse (${raison}) : ${contexte()} ; icône repliée, page rechargée`);
-  ecouteJusqua = 0; ecouteDepuis = 0;
-  replierFenetre('page sans réponse');
-  noterChien('rechargement');
-  try { f.webContents.reloadIgnoringCache(); } catch (e) { journal.warn(`Rechargement impossible : ${e.message}`); }
-  recuperation.minuteur = setTimeout(() => etapeSuivante(f), CHIEN.rechargeMs);
+  // Une étape qui lève (fenêtre détruite entre-temps, getBounds sur une fenêtre partie…) ne doit pas laisser la récupération
+  // « en cours » sans minuteur : le chien ne regarderait plus jamais la page.
+  try {
+    noterChien('detecte');
+    journal.warn(`Page de l'icône sans réponse (${raison}) : ${contexte()} ; icône repliée, page rechargée`);
+    ecouteJusqua = 0; ecouteDepuis = 0;
+    replierFenetre('page sans réponse');
+    noterChien('rechargement');
+    try { f.webContents.reloadIgnoringCache(); } catch (e) { journal.warn(`Rechargement impossible : ${e.message}`); }
+    recuperation.minuteur = setTimeout(() => etapeSuivante(f), CHIEN.rechargeMs);
+  } catch (e) {
+    journal.error(`Récupération interrompue par une erreur : ${e.message}`);
+    clearTimeout(recuperation?.minuteur); recuperation = null; dernierBattement = maintenant;
+  }
 }
 function etapeSuivante(f) {
   if (!recuperation || f !== fenetre || f.isDestroyed()) return;
@@ -1010,7 +1038,7 @@ async function essaiFenetre() {
       const voix = document.querySelector('#b-voix').title;
       if (voix !== T.voixOn && voix !== T.voixOff) faux.push('voix');
       const s = document.querySelector('#statut').textContent;
-      if (![T.pret, T.injoignable, T.cerveauIndisponible, T.aucuneCle, T.ck3Absent, T.raccourciAucun].includes(s) && !s.startsWith(T.pretVersion(''))) faux.push('statut');
+      if (![T.pret, T.injoignable, T.cerveauIndisponible, T.aucuneCle, T.ck3Absent, T.aideEnPanne, T.raccourciAucun].includes(s) && !s.startsWith(T.pretVersion(''))) faux.push('statut');
       return {lang: l, titre: document.title, statut: s, micro: document.querySelector('#micro').title, faux, ok: !faux.length};
     })()`;
     resultat.textes = await fenetre.webContents.executeJavaScript(verifierTextes, true);
@@ -1153,6 +1181,8 @@ else {
   app.whenReady().then(demarrer).catch(e => {
     journal.error('Démarrage impossible :', e);
     if (ESSAI) process.stdout.write(JSON.stringify({essai: 'fenetre', ok: false, erreur: e.message}) + '\n');
+    // Sans cela, le copilote disparaissait sans un mot (10/10/2026) : la cause et le chemin du journal, dans une boîte Windows.
+    else try { const t = MENU[langueValide(langue) || 'fr']; dialog.showErrorBox(t.demarrageRate, t.demarrageDetail(e?.message || String(e), FICHIER_JOURNAL)); } catch {}
     app.exit(1);
   });
 }

@@ -29,8 +29,19 @@ const ETAPES_EN = {capture: 'Looking at your screen…', ecoute: 'Listening to y
 const TEXTES = {
   fr: {
     etapes: ETAPES,
-    secoursImpossible: credit => credit ? 'Crédit Google épuisé, et pas de clé OpenAI pour prendre le relais.' : 'Google ne répond pas, et pas de clé OpenAI pour prendre le relais.',
-    secoursSansCle: 'Pas de clé Google : je passe par OpenAI.', secoursCredit: 'Crédit Google épuisé : je passe par OpenAI.', secoursPanne: 'Google ne répond pas : je passe par OpenAI.',
+    // Repli sur OpenAI par cause classée (classerGemini, 10/10/2026 : un 429 passait pour « crédit épuisé », une clé refusée pour
+    // « Google ne répond pas ») ; modeleInconnu reçoit le nom du modèle. Les phrases crédit et panne sont celles d'avant.
+    secours: {credit: 'Crédit Google épuisé : je passe par OpenAI.', quotaJour: 'Quota Google du jour atteint : je passe par OpenAI.',
+      limite: 'Google limite le rythme (trop de demandes) : je passe par OpenAI.', modeleInconnu: m => `Google ne connaît plus le modèle ${m} : mets à jour le copilote. Je passe par OpenAI.`,
+      cleRefusee: 'Clé Google refusée : vérifie la clé dans .env. Je passe par OpenAI.', indisponible: 'Google est surchargé : je passe par OpenAI.', panne: 'Google ne répond pas : je passe par OpenAI.'},
+    secoursImpossible: {credit: 'Crédit Google épuisé, et pas de clé OpenAI pour prendre le relais.', quotaJour: 'Quota Google du jour atteint, et pas de clé OpenAI pour prendre le relais.',
+      limite: 'Google limite le rythme (trop de demandes), et pas de clé OpenAI pour prendre le relais.', modeleInconnu: m => `Google ne connaît plus le modèle ${m} : mets à jour le copilote (et pas de clé OpenAI pour prendre le relais).`,
+      cleRefusee: 'Clé Google refusée : vérifie la clé dans .env (et pas de clé OpenAI pour prendre le relais).', indisponible: 'Google est surchargé, et pas de clé OpenAI pour prendre le relais.',
+      panne: 'Google ne répond pas, et pas de clé OpenAI pour prendre le relais.'},
+    secoursSansCle: 'Pas de clé Google : je passe par OpenAI.',
+    // Encyclopédie du jeu introuvable (copilote-ck3-savoir.mjs) : dit UNE fois dans le panneau, le copilote répond sans elle.
+    encyclopedieIntrouvable: e => `Encyclopédie introuvable : ${e?.code === 'jeu-introuvable' ? `Crusader Kings III n'est dans aucun Steam trouvé (${e.steams?.join(', ') || 'aucun'}). Indique son dossier dans COPILOTE_CK3_DIR (fichier .env).`
+      : e?.code === 'dossier-force' ? `COPILOTE_CK3_DIR=${e.dossier} n'est pas le dossier de Crusader Kings III (launcher\\launcher-settings.json absent).` : e?.message || '?'} Je réponds sans elle.`,
     poseTaQuestion: 'Pose ta question à voix haute ou par écrit.', aucuneCle: 'Aucune clé Google ni OpenAI dans le fichier .env.',
     pasWav: 'Le son reçu n’est pas un fichier WAV.', rienEntendu: 'Je n’ai rien entendu.',
     coupee: 'La réponse de Google a été coupée en route. Repose ta question.', voixIndisponible: 'Voix indisponible : réponse en texte seulement.',
@@ -41,8 +52,16 @@ const TEXTES = {
   },
   en: {
     etapes: ETAPES_EN,
-    secoursImpossible: credit => credit ? 'Google credit is used up, and there is no OpenAI key to take over.' : 'Google is not responding, and there is no OpenAI key to take over.',
-    secoursSansCle: 'No Google key: switching to OpenAI.', secoursCredit: 'Google credit is used up: switching to OpenAI.', secoursPanne: 'Google is not responding: switching to OpenAI.',
+    secours: {credit: 'Google credit is used up: switching to OpenAI.', quotaJour: 'Google daily quota reached: switching to OpenAI.',
+      limite: 'Google is rate-limiting (too many requests): switching to OpenAI.', modeleInconnu: m => `Google no longer knows the model ${m}: update the copilot. Switching to OpenAI.`,
+      cleRefusee: 'Google key refused: check the key in .env. Switching to OpenAI.', indisponible: 'Google is overloaded: switching to OpenAI.', panne: 'Google is not responding: switching to OpenAI.'},
+    secoursImpossible: {credit: 'Google credit is used up, and there is no OpenAI key to take over.', quotaJour: 'Google daily quota reached, and there is no OpenAI key to take over.',
+      limite: 'Google is rate-limiting (too many requests), and there is no OpenAI key to take over.', modeleInconnu: m => `Google no longer knows the model ${m}: update the copilot (and there is no OpenAI key to take over).`,
+      cleRefusee: 'Google key refused: check the key in .env (and there is no OpenAI key to take over).', indisponible: 'Google is overloaded, and there is no OpenAI key to take over.',
+      panne: 'Google is not responding, and there is no OpenAI key to take over.'},
+    secoursSansCle: 'No Google key: switching to OpenAI.',
+    encyclopedieIntrouvable: e => `Encyclopedia not found: ${e?.code === 'jeu-introuvable' ? `Crusader Kings III is in none of the Steam folders found (${e.steams?.join(', ') || 'none'}). Set COPILOTE_CK3_DIR to its folder (.env file).`
+      : e?.code === 'dossier-force' ? `COPILOTE_CK3_DIR=${e.dossier} is not the Crusader Kings III folder (launcher\\launcher-settings.json missing).` : e?.message || '?'} Answering without it.`,
     poseTaQuestion: 'Ask your question out loud or in writing.', aucuneCle: 'No Google or OpenAI key in the .env file.',
     pasWav: 'The sound received is not a WAV file.', rienEntendu: 'I didn’t hear anything.',
     coupee: 'Google’s answer was cut off. Ask your question again.', voixIndisponible: 'Voice unavailable: text answer only.',
@@ -53,6 +72,8 @@ const TEXTES = {
   },
 };
 const langueValide = l => l === 'en' ? 'en' : 'fr';   // toute autre valeur revient au français
+// Texte d'un dictionnaire par cas (secours, secoursImpossible) : cas inconnu = panne ; modeleInconnu est une fonction du modèle.
+const texteCas = (dico, cas, modele) => { const t = dico[cas] || dico.panne; return typeof t === 'function' ? t(modele || '?') : t; };
 // Erreurs de l'aide Windows (aide-windows.mjs) : ses phrases sont en français, son code (err.code) dit laquelle. Les fausses aides
 // des essais n'ont que la phrase : elle sert alors à retrouver le code.
 const AIDE_EN = {'pas-lance': 'CK3 isn’t running', reduit: 'CK3 is minimized', noire: 'Black capture', 'ne-repond-pas': 'CK3 is not responding',
@@ -99,21 +120,50 @@ async function* evenementsSse(reponse) {
   }
 }
 
-// Erreur Google lisible ; credit = quota ou facturation (le repli OpenAI est alors annoncé comme tel).
-async function erreurGemini(r) {
+// Classement d'une erreur Google (10/10/2026, test ECC : tout 429 passait pour « crédit épuisé », sans nouvelle tentative, même
+// sur 503). cas : credit (facturation), quotaJour (429 du quota journalier : « per day » dans le message ou dans le quotaId des
+// details), limite (autre 429 : par minute ; attenteMs lu dans RetryInfo.retryDelay « 7s »), modeleInconnu (404, « not found »,
+// « is not supported »), cleRefusee (400/401/403 sur la clé), indisponible (503, overloaded), sinon null (panne). credit reste
+// vrai pour crédit et quota du jour : Google est alors évité 5 min, et le repli OpenAI annoncé comme tel.
+function classerGemini(statut, texte, details) {
+  const t = String(texte || ''), d = Array.isArray(details) ? details : [];
+  const quotas = d.flatMap(x => x?.violations || []).map(v => v?.quotaId || '').join(' ');
+  const retryDelay = d.find(x => typeof x?.retryDelay === 'string')?.retryDelay || t.match(/retry in (\d+(?:\.\d+)?)\s*s/i)?.[1];
+  // « please check your plan and billing details » accompagne tout 429 de Google : ce « billing »-là n'est pas une facturation.
+  const cas = /prepa|credit|payment|billing(?! details)/i.test(t) ? 'credit'
+    : statut === 429 ? (/per day|PerDay|daily/i.test(`${t} ${quotas}`) ? 'quotaJour' : 'limite')
+    : statut === 404 || /not found|is not supported/i.test(t) ? 'modeleInconnu'
+    : [400, 401, 403].includes(statut) && /API key|API_KEY_INVALID|PERMISSION_DENIED/i.test(t) ? 'cleRefusee'
+    : statut === 503 || /overloaded|UNAVAILABLE/i.test(t) ? 'indisponible' : null;
+  const attenteMs = retryDelay ? Math.round(parseFloat(retryDelay) * 1000) || 0 : 0;
+  return {cas, credit: cas === 'credit' || cas === 'quotaJour', attenteMs};
+}
+// Erreur Google lisible (statut HTTP et message de Google), classée ; modele : celui de l'appel, pour le message « mets à jour ».
+async function erreurGemini(r, modele = null) {
   const j = await r.json().catch(() => ({}));
   const texte = `${j.error?.status || ''} ${j.error?.message || ''}`;
-  return Object.assign(new Error(`Gemini ${r.status} : ${texte.trim().slice(0, 300)}`), {statut: r.status, credit: r.status === 429 || /RESOURCE_EXHAUSTED|billing|quota|prepa|credit/i.test(texte)});
+  return Object.assign(new Error(`Gemini ${r.status} : ${texte.trim().slice(0, 300)}`), {statut: r.status, modele, ...classerGemini(r.status, texte, j.error?.details)});
 }
+// Nouvelle tentative (une seule) sur « limite » et « indisponible » : délai indiqué par Google, 8 s au plus, 2 s sinon. Voix :
+// 4 s au plus, la garde du premier son (8 s) court déjà et le nouvel essai doit avoir le temps de rendre un son.
+const NOUVEL_ESSAI_MS = 2000, NOUVEL_ESSAI_MAX_MS = 8000, NOUVEL_ESSAI_VOIX_MS = PREMIER_SON_MS / 2;
+const RETENTES = ['limite', 'indisponible'];
+// Attente annulable : une question abandonnée pendant le délai ne retient pas le serveur.
+const attendreSauf = (ms, signal) => new Promise((ok, ko) => {
+  if (signal?.aborted) return ko(signal.reason);
+  const t = setTimeout(() => { signal?.removeEventListener('abort', fin); ok(); }, ms);
+  const fin = () => { clearTimeout(t); ko(signal.reason); };
+  signal?.addEventListener('abort', fin, {once: true});
+});
 async function erreurOpenAI(r) {
   const j = await r.json().catch(() => ({}));
   return Object.assign(new Error(`OpenAI ${r.status} : ${(j.error?.message || '').slice(0, 300)}`), {statut: r.status});
 }
 // Erreur envoyée par Google AU MILIEU d'un flux SSE déjà commencé (réponse 200) : {"error":{code, status, message}}. Sans ce
 // contrôle, une réponse tronquée passait pour complète (« fin », mise en mémoire, pas de repli).
-function erreurDansFlux(e) {
+function erreurDansFlux(e, modele = null) {
   const texte = `${e.status || ''} ${e.message || ''}`;
-  return Object.assign(new Error(`Gemini ${e.code || '?'} (dans le flux) : ${texte.trim().slice(0, 300)}`), {statut: e.code, credit: e.code === 429 || /RESOURCE_EXHAUSTED|billing|quota|prepa|credit/i.test(texte)});
+  return Object.assign(new Error(`Gemini ${e.code || '?'} (dans le flux) : ${texte.trim().slice(0, 300)}`), {statut: e.code, modele, ...classerGemini(e.code, texte, e.details)});
 }
 // Signal annulé si aucun morceau n'arrive dans les ms premières millisecondes ; recu() désarme la garde au premier morceau.
 function gardePremierMorceau(signal, ms) {
@@ -493,10 +543,13 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
   // langueMemoire : langue des échanges gardés ; une question dans l'autre langue repart de zéro (un historique mélangé faisait
   // mélanger les langues au modèle).
   let historique = [], dernierEchange = 0, enCours = null, epoqueMemoire = 0, langueMemoire = 'fr';
-  const panne = {jusqua: 0};   // crédit Google épuisé : on passe directement par OpenAI pendant 5 min
+  const panne = {jusqua: 0, cas: null};   // crédit Google épuisé (ou quota du jour) : on passe directement par OpenAI pendant 5 min
 
   // Savoir du jeu : chargé au démarrage, rechargé si Steam a mis le jeu à jour (version relue au plus une fois par minute).
-  let savoirP = null, savoirT = 0;
+  // COPILOTE_CK3_DIR (.env ou variable d'environnement, 10/10/2026) : dossier du jeu imposé quand Steam est ailleurs.
+  // savoirErreur : dernière cause d'échec, dite UNE fois dans le panneau (savoirAverti) au lieu d'une ligne de journal seule.
+  const dossierJeuForce = env.COPILOTE_CK3_DIR || process.env.COPILOTE_CK3_DIR || null;
+  let savoirP = null, savoirT = 0, savoirErreur = null, savoirAverti = false;
   function obtenirSavoir() {
     if (!savoirP || Date.now() - savoirT > 60e3) {
       savoirT = Date.now();
@@ -504,9 +557,9 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       savoirP = (async () => {
         const ancien = await precedent?.catch(() => null);
         if (ancien) { const v = await versionInstallee(ancien.dossierJeu).catch(() => null); if (v?.version === ancien.version) return ancien; }
-        return chargerSavoirCk3({root, journal, prenom});
+        return chargerSavoirCk3({root, journal, prenom, dossierJeu: dossierJeuForce});
       })();
-      savoirP.catch(e => journal.error?.('Copilote CK3 : savoir du jeu indisponible :', e.message));
+      savoirP.then(() => { savoirErreur = null; savoirAverti = false; }, e => { savoirErreur = e; journal.error?.('Copilote CK3 : savoir du jeu indisponible :', e.message); });
     }
     return savoirP.catch(() => null);
   }
@@ -547,6 +600,21 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
   const enteteGemini = {'Content-Type': 'application/json', 'x-goog-api-key': cleGemini};
   const enteteOpenAI = {'Content-Type': 'application/json', Authorization: `Bearer ${cleOpenAI}`};
   const geminiDispo = () => !!cleGemini && Date.now() > panne.jusqua;
+  // Appel à Google : rend la réponse si r.ok, sinon lève l'erreur classée (statut HTTP au journal via son message). Une seule
+  // nouvelle tentative sur « limite » (429 par minute) et « indisponible » (503), après le délai que Google indique (attenteMax au
+  // plus : 8 s, 4 s pour la voix). Attente coupée par le joueur (AbortError) : son annulation ; par un délai ou la garde du premier
+  // son (TimeoutError) : l'erreur classée, pour que sa vraie cause soit dite (un 429 de la voix devenait « Google ne répond pas »).
+  async function appelGemini(url, init, modele = url.match(/\/models\/([^:/?]+)/)?.[1] || null, attenteMax = NOUVEL_ESSAI_MAX_MS) {
+    for (let essai = 0; ; essai++) {
+      const r = await fetch(url, init);
+      if (r.ok) return r;
+      const e = await erreurGemini(r, modele);
+      if (essai || !RETENTES.includes(e.cas)) throw e;
+      const ms = Math.min(attenteMax, e.attenteMs || NOUVEL_ESSAI_MS);
+      journal.warn?.(`Copilote CK3 : ${e.message} ; nouvelle tentative dans ${ms} ms`);
+      await attendreSauf(ms, init?.signal).catch(raison => { throw annulee(raison) ? raison : e; });
+    }
+  }
 
   async function journaliser(e) {
     try {
@@ -576,13 +644,16 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       if (!q.modeles.includes(modele)) q.modeles.push(modele);
       conso?.enregistrer({agent: 'jarvis', modele, source: 'copilote CK3', secondes});
     }
+    // e : erreur classée (cas, credit, modele), ou {credit: true, cas} quand Google est déjà évité (panne en cours).
     function secours(e) {
-      if (!cleOpenAI) throw francais(T.secoursImpossible(!!e?.credit));
-      if (e?.credit) panne.jusqua = Date.now() + 5 * 60e3;
+      const cas = e?.cas || (Date.now() < panne.jusqua ? panne.cas : null) || 'panne';
+      if (!cleOpenAI) throw francais(texteCas(T.secoursImpossible, cas, e?.modele));
+      if (e?.credit) { panne.jusqua = Date.now() + 5 * 60e3; panne.cas = cas; }
       if (q.secours) return;
       q.secours = true;
-      pousser({type: 'etape', etape: 'reflexion', secours: true, texte: !cleGemini ? T.secoursSansCle : e?.credit || Date.now() < panne.jusqua ? T.secoursCredit : T.secoursPanne});
+      pousser({type: 'etape', etape: 'reflexion', secours: true, texte: !cleGemini ? T.secoursSansCle : texteCas(T.secours, cas, e?.modele)});
     }
+    const panneEnCours = () => ({credit: Date.now() < panne.jusqua, cas: panne.cas});
 
     // Regard de l'appui pris AVANT tout contrôle : une question refusée ci-dessous (rien entendu, aucune clé) l'arrête dans le catch,
     // au lieu de le laisser imprimer CK3 jusqu'à 40 s et de servir à une question suivante qui n'a pas eu d'appui.
@@ -618,16 +689,20 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       if (son) {
         pousser({type: 'etape', etape: 'ecoute', texte: ETAPES_Q.ecoute});
         ecoute = (async () => {
-          if (!geminiDispo()) { secours({credit: Date.now() < panne.jusqua}); return {question: await transcrireOpenAI(son), termes: []}; }
+          if (!geminiDispo()) { secours(panneEnCours()); return {question: await transcrireOpenAI(son), termes: []}; }
           // Deux écoutes en parallèle : Flash rend la question ET les termes anglais du jeu, mais a mis 3 à 8 s le 06/10 ; le modèle
           // de transcription répond en 1,7 s. Flash est attendu au plus 1,5 s de plus, sinon on continue sans ses termes (le lexique
           // français-anglais du savoir prend le relais).
           const complet = Promise.race([capture.catch(() => null), attendre(700)]).then(c => ecouterGemini(son, principaleDe(c)?.plein));   // image basse résolution si prête
           const rapide = transcrireGemini(son).then(question => ({question, termes: []}));
           complet.catch(() => {}); rapide.catch(() => {});
-          const premier = await Promise.any([complet.then(r => ({...r, flash: true})), rapide]).catch(ae => ({erreur: ae.errors?.[0] || ae}));
+          // Les deux écoutes ratées : l'erreur classée (clé refusée, quota…) l'emporte sur une erreur quelconque, elle est notée
+          // au journal avec son statut HTTP, et c'est sa vraie cause qui est dite (plus jamais « Google ne répond pas » pour
+          // une clé refusée).
+          const premier = await Promise.any([complet.then(r => ({...r, flash: true})), rapide]).catch(ae => { const l = ae.errors || [ae]; return {erreur: l.find(x => x?.cas) || l[0]}; });
           if (premier.erreur) {
             if (annulee(premier.erreur)) throw premier.erreur;
+            journal.error?.('Copilote CK3 : écoute Google impossible :', premier.erreur.message);
             secours(premier.erreur);
             return {question: await transcrireOpenAI(son), termes: []};
           }
@@ -657,8 +732,9 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       if (!q.question || q.question.replace(/[^\p{L}\p{N}]/gu, '').length < 2) throw francais(T.rienEntendu);
       pousser({type: 'question', texte: q.question});
 
-      // 2. Encyclopédie du jeu (exacte pour sa version).
+      // 2. Encyclopédie du jeu (exacte pour sa version). Introuvable : dit une fois dans le panneau, puis on répond sans elle.
       const savoir = await savoirAttendu;
+      if (!savoir && savoirErreur && !savoirAverti) { savoirAverti = true; pousser({type: 'avertissement', message: T.encyclopedieIntrouvable(savoirErreur)}); }
       const extraits = savoir ? savoir.chercher(termes, q.question, 6000, langue) : [];
       q.extraits = extraits.map(e => e.cle);
 
@@ -718,7 +794,7 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
           journal.error?.('Copilote CK3 : Gemini indisponible :', e.message);
           secours(e);
         }
-      } else secours({credit: Date.now() < panne.jusqua});
+      } else secours(panneEnCours());
       if (!rep) rep = await repondreOpenAI({parts, systeme, signal, surTexte});
       q.durees.reponse = ms();
       if (rep.liens.length || rep.suggestionsHtml) pousser({type: 'sources', liens: rep.liens, ...(rep.suggestionsHtml ? {suggestionsHtml: rep.suggestionsHtml} : {})});
@@ -760,11 +836,10 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
         termes: {type: 'ARRAY', maxItems: 6, items: {type: 'STRING'}, description: en ? 'Up to 6 ENGLISH Crusader Kings III terms, as in the game\'s Encyclopedia.' : 'Jusqu’à 6 termes ANGLAIS de Crusader Kings III, tels que dans l’Encyclopédie du jeu.'}}};
       const consigne = en ? 'Transcribe word for word the spoken question of an English-speaking Crusader Kings III player (the game interface is in English; the image, if any, shows their screen). Then give up to 6 ENGLISH game terms, as they appear in the game\'s Encyclopedia, useful to answer (e.g. Truce, Casus Belli, Hook). Never infer the question from the image: if there is no speech, question = "".'
         : 'Transcris mot pour mot la question orale d’un joueur francophone de Crusader Kings III (interface du jeu en anglais ; l’image, s’il y en a une, montre son écran). Puis donne jusqu’à 6 termes ANGLAIS du jeu, tels qu’ils apparaissent dans l’Encyclopédie du jeu, utiles pour répondre (ex. Truce, Casus Belli, Hook). Ne déduis jamais la question de l’image : s’il n’y a pas de parole, question = "".';
-      const r = await fetch(`${GEMINI}/models/${M.ecoute}:generateContent`, {method: 'POST', headers: enteteGemini, signal: delai(signal, 20000), body: JSON.stringify({
+      const r = await appelGemini(`${GEMINI}/models/${M.ecoute}:generateContent`, {method: 'POST', headers: enteteGemini, signal: delai(signal, 20000), body: JSON.stringify({
         systemInstruction: {parts: [{text: consigne}]},
         contents: [{role: 'user', parts: [...(plein ? [{inline_data: {mime_type: 'image/jpeg', data: plein.toString('base64')}, mediaResolution: {level: 'MEDIA_RESOLUTION_LOW'}}] : []), {inline_data: {mime_type: 'audio/wav', data: son.b64}}]}],
         generationConfig: {responseMimeType: 'application/json', responseSchema: schema, thinkingConfig: {thinkingLevel: 'low'}, temperature: 0}})});
-      if (!r.ok) throw await erreurGemini(r);
       const j = await r.json();
       const u = j.usageMetadata || {};
       compter(M.ecoute, u.promptTokenCount, u.candidatesTokenCount, u.thoughtsTokenCount);
@@ -774,9 +849,8 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
     }
 
     async function transcrireGemini(son) {
-      const r = await fetch(`${GEMINI}/models/${M.transcription}:generateContent`, {method: 'POST', headers: enteteGemini, signal: delai(signal, 15000), body: JSON.stringify({
+      const r = await appelGemini(`${GEMINI}/models/${M.transcription}:generateContent`, {method: 'POST', headers: enteteGemini, signal: delai(signal, 15000), body: JSON.stringify({
         contents: [{role: 'user', parts: [{text: en ? 'Transcribe word for word, in English, the question of a Crusader Kings III player (count, duke, truce, hook…).' : 'Transcris mot pour mot, en français, la question d’un joueur de Crusader Kings III (comte, duc, trêve, hameçon…).'}, {inline_data: {mime_type: 'audio/wav', data: son.b64}}]}]})});
-      if (!r.ok) throw await erreurGemini(r);
       const j = await r.json();
       const u = j.usageMetadata || {};
       compter(M.transcription, u.promptTokenCount, u.candidatesTokenCount);
@@ -808,12 +882,11 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       const lenteur = new AbortController();
       const garde = setTimeout(() => lenteur.abort(new DOMException('Google met trop de temps à écrire', 'TimeoutError')), 25000);
       try {
-        const r = await fetch(`${GEMINI}/models/${M.reponse}:streamGenerateContent?alt=sse`, {method: 'POST', headers: enteteGemini, signal: AbortSignal.any([delai(signal, 60000), lenteur.signal]), body: JSON.stringify({
+        const r = await appelGemini(`${GEMINI}/models/${M.reponse}:streamGenerateContent?alt=sse`, {method: 'POST', headers: enteteGemini, signal: AbortSignal.any([delai(signal, 60000), lenteur.signal]), body: JSON.stringify({
           systemInstruction: {parts: [{text: systeme}]}, contents, tools: [{google_search: {}}],
           generationConfig: {thinkingConfig: {thinkingLevel: 'low'}, maxOutputTokens: 4096}})});
-        if (!r.ok) throw await erreurGemini(r);
         for await (const j of evenementsSse(r)) {
-          if (j.error) throw erreurDansFlux(j.error);
+          if (j.error) throw erreurDansFlux(j.error, M.reponse);
           if (j.usageMetadata) usage = j.usageMetadata;
           const c = j.candidates?.[0];
           if (c?.groundingMetadata) {
@@ -862,7 +935,7 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
       if (geminiDispo()) {
         try { return await voixGemini(texte, morceau); } catch (e) {
           if (annulee(e) || signal.aborted || recu) throw e;
-          const refus = !e.credit && e.statut >= 400 && e.statut < 500;
+          const refus = !e.credit && e.statut !== 429 && e.statut >= 400 && e.statut < 500;   // 429 « limite » : déjà retenté, pas une autre voie
           if (refus) try { return await voixInteractions(texte, morceau); } catch (e2) { if (annulee(e2) || signal.aborted || recu) throw e2; }
           secours(e);
         }
@@ -880,14 +953,13 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
     async function voixGemini(texte, surMorceau) {
       const garde = gardePremierMorceau(delai(signal, 30000), PREMIER_SON_MS);
       try {
-        const r = await fetch(`${GEMINI}/models/${M.voix}:streamGenerateContent?alt=sse`, {method: 'POST', headers: enteteGemini, signal: garde.signal, body: JSON.stringify({
+        const r = await appelGemini(`${GEMINI}/models/${M.voix}:streamGenerateContent?alt=sse`, {method: 'POST', headers: enteteGemini, signal: garde.signal, body: JSON.stringify({
           contents: [{role: 'user', parts: [{text: texte}]}],
-          generationConfig: {responseModalities: ['AUDIO'], speechConfig: {voiceConfig: {prebuiltVoiceConfig: {voiceName: VOIX_GEMINI}}}}})});
-        if (!r.ok) throw await erreurGemini(r);
+          generationConfig: {responseModalities: ['AUDIO'], speechConfig: {voiceConfig: {prebuiltVoiceConfig: {voiceName: VOIX_GEMINI}}}}})}, M.voix, NOUVEL_ESSAI_VOIX_MS);
         const sortie = decoupeur(b => { garde.recu(); surMorceau(b); });
         let usage = {};
         for await (const j of evenementsSse(r)) {
-          if (j.error) throw erreurDansFlux(j.error);
+          if (j.error) throw erreurDansFlux(j.error, M.voix);
           if (j.usageMetadata) usage = j.usageMetadata;
           for (const p of j.candidates?.[0]?.content?.parts || []) if (p.inlineData?.data) sortie(Buffer.from(p.inlineData.data, 'base64'));
         }
@@ -897,14 +969,13 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
     async function voixInteractions(texte, surMorceau) {
       const garde = gardePremierMorceau(delai(signal, 30000), PREMIER_SON_MS);
       try {
-        const r = await fetch(`${GEMINI}/interactions`, {method: 'POST', headers: enteteGemini, signal: garde.signal, body: JSON.stringify({
+        const r = await appelGemini(`${GEMINI}/interactions`, {method: 'POST', headers: enteteGemini, signal: garde.signal, body: JSON.stringify({
           model: M.voix, input: [{type: 'user_input', content: [{type: 'text', text: texte}]}], response_format: {type: 'audio'},
-          generation_config: {speech_config: [{voice: VOIX_GEMINI}]}, stream: true})});
-        if (!r.ok) throw await erreurGemini(r);
+          generation_config: {speech_config: [{voice: VOIX_GEMINI}]}, stream: true})}, M.voix, NOUVEL_ESSAI_VOIX_MS);
         const sortie = decoupeur(b => { garde.recu(); surMorceau(b); });
         let usage = {};
         for await (const j of evenementsSse(r)) {
-          if (j.error) throw erreurDansFlux(j.error);
+          if (j.error) throw erreurDansFlux(j.error, M.voix);
           if (j.event_type === 'step.delta' && j.delta?.type === 'audio' && j.delta.data) sortie(Buffer.from(j.delta.data, 'base64'));
           else if (j.event_type === 'interaction.completed') usage = j.interaction?.usage || {};
         }
@@ -954,11 +1025,13 @@ export function creerCopiloteJeu({root, env = {}, aide = null, conso = null, jou
     }
   }
 
+  // aide : {ok} ou {ok: false, erreur} quand l'aide Windows ne répond pas (10/10/2026 : la page disait alors « CK3 n'est pas lancé »).
   async function etat() {
     const s = await obtenirSavoir();
-    let ck3 = false;
-    try { ck3 = aide ? !!(await Promise.race([aide.etat(), attendre(3000).then(() => ({}))])).ck3 : false; } catch {}
-    return {ck3, version: s?.version || null, extensions: s?.extensions || {possedees: [], manquantes: []}, joueur: joueur.prenom ? 'prenom' : 'generique',
+    let ck3 = false, aideErreur = null;
+    if (!aide) aideErreur = 'aide Windows absente';
+    else try { ck3 = !!(await Promise.race([aide.etat(), attendre(3000).then(() => { throw new Error('Aide Windows sans réponse'); })])).ck3; } catch (e) { aideErreur = e?.message || 'Aide Windows indisponible'; }
+    return {ck3, aide: aideErreur ? {ok: false, erreur: aideErreur} : {ok: true}, version: s?.version || null, extensions: s?.extensions || {possedees: [], manquantes: []}, joueur: joueur.prenom ? 'prenom' : 'generique',
       cle: {gemini: !!cleGemini, openai: !!cleOpenAI}, voix: !!(cleGemini || cleOpenAI), modeles: {reponse: M.reponse, voix: `${M.voix} (${VOIX_GEMINI})`, secours: M.secours}};
   }
 

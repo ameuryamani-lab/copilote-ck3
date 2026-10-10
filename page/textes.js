@@ -46,6 +46,8 @@ self.TEXTES_COPILOTE = {
     cerveauIndisponible: 'Cerveau indisponible',
     aucuneCle: 'Aucune clé d\'IA trouvée',
     ck3Absent: 'CK3 n\'est pas lancé',
+    // Aide Windows (PowerShell de capture) qui ne répond pas (10/10/2026) : distinct de « CK3 n'est pas lancé ».
+    aideEnPanne: 'Aide Windows en panne : capture impossible',
     injoignable: 'Serveur du copilote injoignable',
     voixEnCours: 'Je te le dis à voix haute…',
     // Démonstration (?demo=1) : mêmes étapes que le vrai cerveau.
@@ -97,6 +99,7 @@ self.TEXTES_COPILOTE = {
     cerveauIndisponible: 'Brain unavailable',
     aucuneCle: 'No AI key found',
     ck3Absent: 'CK3 isn’t running',
+    aideEnPanne: 'Windows helper down: capture unavailable',
     injoignable: 'Copilot server unreachable',
     voixEnCours: 'Reading the answer to you…',
     demoQuestion: 'How do I fabricate a hook on my vassal?',

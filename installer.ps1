@@ -1,8 +1,9 @@
 ﻿# CK3 Copilot installer, started by Installer-Copilote-CK3.cmd (double-click). Safe to run again: it only does what is missing.
 #   1. checks Windows and this folder;
 #   2. checks Node.js 22.12 or newer (only needed to install); if missing, offers to open https://nodejs.org/ in the browser
-#      (it never downloads or runs a program by itself);
-#   3. installs the packages of package-lock.json (npm ci), then downloads Electron, the app's engine (about 150 MB);
+#      (it never downloads or installs Node.js itself);
+#   3. installs the packages of package-lock.json (npm ci from registry.npmjs.org, integrity checked; fallback: npm install
+#      --ignore-scripts, announced), then downloads Electron, the app's engine (about 150 MB, github.com, checksums checked by its install.js);
 #   4. creates .env from .env.example and asks for the Google Gemini key (typed hidden, never shown, kept only in .env);
 #   5. creates a "CK3 Copilot" shortcut on the desktop and checks (read only) that Windows lets desktop apps use the microphone.
 # Nothing else is changed on the PC. Options (tests, automation): -NoPrompt (asks nothing, never opens the browser),
@@ -153,6 +154,13 @@ try {
     Echec "This folder is incomplete (missing: $($manquants -join ', ')). Download the ZIP again from GitHub and extract all of it." `
           "Ce dossier est incomplet (manque : $($manquants -join ', ')). Retélécharge le ZIP sur GitHub et extrais-le en entier."
   }
+  # Program Files : Windows n'y laisse écrire que les administrateurs (npm, .env, journal) : l'installation y échouerait (revue du 10/10/2026).
+  foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+    if ($pf -and $App.StartsWith($pf.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+      Echec "This folder is under Program Files, where Windows only lets administrators write: the installation would fail. Move the copilot's folder into your user folder (for example $env:USERPROFILE\CK3-Copilot), then run the installer again." `
+            "Ce dossier est sous Program Files, où Windows ne laisse écrire que les administrateurs : l'installation échouerait. Déplace le dossier du copilote dans ton dossier utilisateur (par exemple $env:USERPROFILE\CK3-Copilot), puis relance l'installation."
+    }
+  }
   $nomWindows = 'Windows 10'
   if ($v.Build -ge 22000) { $nomWindows = 'Windows 11' }   # Windows 11 se déclare encore en version 10.0
   Bien "$nomWindows (build $($v.Build)), 64-bit: OK." "$nomWindows (build $($v.Build)), 64 bits : OK."
@@ -204,7 +212,13 @@ try {
         Info 'Installing the packages (npm)... about one minute.' 'Installation des paquets (npm)... environ une minute.'
         $code = 1
         if (Test-Path -LiteralPath (Join-Path $App 'package-lock.json')) { & $npm ci --no-audit --no-fund; $code = $LASTEXITCODE }
-        if ($code -ne 0) { & $npm install --no-audit --no-fund; $code = $LASTEXITCODE }
+        # Repli sans verrou (package-lock.json absent ou refusé) : versions choisies par npm, pas celles vérifiées ; --ignore-scripts
+        # pour qu'aucun script d'un paquet non vérifié ne tourne (Electron est de toute façon téléchargé par install.js, plus bas).
+        if ($code -ne 0) {
+          Attention 'npm ci failed (package-lock.json missing or refused): switching to npm install WITHOUT the lock file. Package versions are then chosen by npm, not the ones checked by the author; no package script is run.' `
+                    'npm ci a échoué (package-lock.json absent ou refusé) : passage à npm install SANS le fichier de verrou. Les versions des paquets sont alors choisies par npm, pas celles vérifiées par l''auteur ; aucun script de paquet n''est lancé.'
+          & $npm install --no-audit --no-fund --ignore-scripts; $code = $LASTEXITCODE
+        }
         if ($code -ne 0) { Echec 'npm could not install the packages. Check your Internet connection, then run the installer again.' 'npm n''a pas pu installer les paquets. Vérifie ta connexion Internet, puis relance l''installation.' }
       }
       Info 'Downloading Electron (about 150 MB): this can take a few minutes...' 'Téléchargement d''Electron (environ 150 Mo) : cela peut prendre quelques minutes...'

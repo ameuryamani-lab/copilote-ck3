@@ -42,8 +42,8 @@ On the paid tier, Google does not use your prompts or answers to improve its pro
 
 1. On the [copilot's GitHub page](https://github.com/ameuryamani-lab/copilote-ck3), click the green **Code** button, then **Download ZIP**.
 2. Open your Downloads folder, **right-click** the ZIP file (`copilote-ck3-main.zip`), then **Extract All...**.
-3. Choose a folder you will keep, for example `C:\Games` (type it in the box, or click **Browse...**), then click **Extract**. Avoid the Downloads folder (easy to clean up by mistake) and folders synced by OneDrive (the copilot takes about 400 MB).
-4. Windows puts a folder named **`copilote-ck3-main`** in the folder you chose, for example `C:\Games\copilote-ck3-main`. **This is the copilot's folder:** everything this guide calls "the copilot's folder" is there.
+3. Choose a folder you will keep, inside your own user folder: for example `%USERPROFILE%\CK3-Copilot` (type it in the box, or click **Browse...**; to see your user folder, type `%USERPROFILE%` in the address bar of File Explorer), then click **Extract**. Why there: the copilot's folder will hold `.env`, the file with your key, and a folder shared by every account of the PC (such as `C:\Games`) would let the other Windows accounts read it. Avoid `Program Files` (the installation fails there without administrator rights, and the installer refuses it), the Downloads folder (easy to clean up by mistake) and folders synced by OneDrive (the copilot takes about 400 MB).
+4. Windows puts a folder named **`copilote-ck3-main`** in the folder you chose, for example `%USERPROFILE%\CK3-Copilot\copilote-ck3-main`. **This is the copilot's folder:** everything this guide calls "the copilot's folder" is there.
 
 Do not run anything from inside the ZIP: always extract it first.
 
@@ -58,12 +58,14 @@ Open the copilot's folder (`copilote-ck3-main`) and **double-click `Installer-Co
 > - "Open File - Security Warning": click **Run**.
 >
 > The installer is plain text: you can open `Installer-Copilote-CK3.cmd` and `installer.ps1` with Notepad and read what they do before you run them.
+>
+> If you read `Installer-Copilote-CK3.cmd`, you will see that it starts Windows PowerShell with `-ExecutionPolicy Bypass`: by default, Windows refuses to run `.ps1` scripts that you double-click, and this option lifts that rule for this one PowerShell process only; it changes no setting on your PC. PowerShell runs in the black window you see: nothing runs hidden.
 
 The installer goes through 5 steps:
 
 1. **Windows and folder.** It checks that you have Windows 10 or 11 and that the folder is complete.
-2. **Node.js.** If Node.js is missing or too old, it explains what to do and offers to open [nodejs.org](https://nodejs.org/) in your browser. Download the version marked **LTS**, install it with the default options (you don't need "Tools for Native Modules"), then double-click the installer again. The installer never downloads or runs a program by itself.
-3. **Electron.** It installs the app's engine, Electron (about 150 MB). This takes from a few seconds to a few minutes, depending on your connection. Where it comes from: the small packages listed in `package.json` come from the official npm registry (registry.npmjs.org), and Electron itself from the official Electron releases on GitHub (github.com/electron/electron); the download is checked against its published SHA-256 fingerprint. The installer downloads nothing else and never runs a program from the internet.
+2. **Node.js.** If Node.js is missing or too old, it explains what to do and offers to open [nodejs.org](https://nodejs.org/) in your browser. Download the version marked **LTS**, install it with the default options (you don't need "Tools for Native Modules"), then double-click the installer again. The installer never downloads or installs Node.js itself: you do it, from nodejs.org, in your browser.
+3. **Electron.** It installs the app's engine, Electron (about 150 MB). This takes from a few seconds to a few minutes, depending on your connection. To be exact about what is downloaded and run: the 13 small packages listed in `package-lock.json` come from the official npm registry (registry.npmjs.org), and npm checks each one against the integrity fingerprint recorded in that file; Electron itself is downloaded by its own script (`install.js`, part of the `electron` package) from the official Electron releases on GitHub (github.com/electron/electron) and checked against the SHA-256 sums shipped in that package. These are programs from the Internet that run on your PC, like any installation: the installer limits them to these two official sources, downloads nothing from the author's own servers, and nodejs.org is only ever opened in your browser. If npm's first attempt (`npm ci`) fails and the installer says "npm ci failed (package-lock.json missing or refused): switching to npm install WITHOUT the lock file", the package versions are then the ones npm picks, not the ones checked by the author (no package script is run); you can also stop there and run the installer again later.
 4. **Your Gemini key.** It asks you to paste your key: press **Ctrl+V** (or right-click), then **Enter**. The key shows as stars (`*****`): that is normal. The installer checks the key with Google, then saves it in a file named `.env`, in the copilot's folder, on your PC only. No key yet? Press Enter to skip, and run the installer again later.
 5. **Shortcut and microphone.** It creates a **CK3 Copilot** shortcut on your desktop and checks that Windows lets desktop apps use the microphone.
 
@@ -73,7 +75,7 @@ This is roughly what you should see. It is shortened: in the real window, each l
 
 ```
 CK3 Copilot - installation
-Folder / Dossier : C:\Games\copilote-ck3-main
+Folder / Dossier : <your user folder>\CK3-Copilot\copilote-ck3-main
 
 [1/5] Checking Windows and this folder
 Windows 11 (build 26200), 64-bit: OK.
@@ -152,7 +154,7 @@ So you can talk to it as you would to a friend sitting next to you: "Look at thi
 
 **Tip:** stop the mouse for half a second on what you want it to see. CK3 opens its tooltips when the mouse rests, and the copilot prefers the moments when the mouse was still.
 
-Only the CK3 window is captured: never your desktop or other programs, and never windows on top of the game (including the copilot itself). The views stay in memory and are dropped after the question; only the main image of the last question is kept on disk (see [Privacy](#10-privacy)).
+Only the CK3 window is captured: never your desktop or other programs, and never windows on top of the game (including the copilot itself). One nuance: what another program draws *inside* the game's own image, such as the Steam overlay (Shift+Tab), is part of the CK3 window and is captured with it. The views stay in memory and are dropped after the question; only the main image of the last question is kept on disk (see [Privacy](#10-privacy)).
 
 ## 8. Language, voice and other settings
 
@@ -161,16 +163,18 @@ Right-click the copilot's icon next to the clock:
 - **Voice on / Voice off:** answers read aloud or not (the panel button 2 does the same).
 - **Forget the conversation:** the next question starts fresh.
 - **Reset the icon and panel position.**
+- **Reset the copilot (Ctrl+Shift+Backspace):** the same as the emergency shortcut: the icon and panel are rebuilt from scratch (listening and voice stopped, icon collapsed and shown for 8 seconds); your settings and the conversation are kept. Use it if the copilot stops reacting (see [Troubleshooting](#11-troubleshooting)).
 - **Langue / Language:** Français or English. By default the copilot follows your Windows language. Changing the language also clears the conversation.
-- **Quit.**
+- **Quit (Ctrl+Shift+Backspace twice within 2 s).**
 
-Three optional settings go in the `.env` file, in the copilot's folder. To edit it: right-click `.env` > **Open with** > **Notepad**, change the line, then **File > Save**.
+Four optional settings go in the `.env` file, in the copilot's folder. To edit it: right-click `.env` > **Open with** > **Notepad**, change the line, then **File > Save**.
 
 - `OPENAI_API_KEY=`: paste an OpenAI key after the `=` sign if you want the backup.
 - `COPILOTE_LANGUE=en` or `fr`: the answer language until you pick one in the menu.
 - `COPILOTE_PRENOM=YourFirstName`: the copilot calls you by your first name (otherwise it talks to "the player"). Your first name is then sent to Google with each question.
+- `COPILOTE_CK3_DIR=D:\SteamLibrary\steamapps\common\Crusader Kings III`: the game's folder, only if Steam is installed somewhere unusual and the copilot says it cannot find the game's Encyclopedia (see [Troubleshooting](#11-troubleshooting)).
 
-In the file, the `COPILOTE_LANGUE` and `COPILOTE_PRENOM` lines start with `#`, which switches them off. To use one, **delete the `#` and the space after it**, then write your value after the `=` sign. For example, `# COPILOTE_PRENOM=` becomes `COPILOTE_PRENOM=Alex`. Lines that start with `#` are only notes: the copilot ignores them.
+In the file, the `COPILOTE_LANGUE`, `COPILOTE_PRENOM` and `COPILOTE_CK3_DIR` lines start with `#`, which switches them off. To use one, **delete the `#` and the space after it**, then write your value after the `=` sign. For example, `# COPILOTE_PRENOM=` becomes `COPILOTE_PRENOM=Alex`. Lines that start with `#` are only notes: the copilot ignores them.
 
 Restart the copilot (menu > **Quit**, then the desktop shortcut) after changing `.env`.
 
@@ -191,18 +195,27 @@ Prices checked on 7 October 2026; Google may change them.
 
 - **Microphone:** it opens only when you press the keys or click the icon, and the icon stays red while it listens. Your voice is not saved on your PC.
 - **Screen:** only the CK3 window is captured, only during a question (40 seconds at most), and the views stay in memory.
-- **What is sent, and to whom:** your recorded question, up to 4 views of the CK3 window (with close-ups around the mouse cursor), the last few exchanges and, if you set one, your first name go to Google (or to OpenAI if you added a backup key and Google fails). Nothing is sent to the author of the copilot.
+- **What is sent, and to whom.** With each question, the copilot sends to Google (or to OpenAI if you added a backup key and Google fails):
+  - the recording of your question (to be transcribed), then its transcript;
+  - up to 4 views of the CK3 window with close-ups around the mouse cursor, with the position of the cursor in the window, the size of the window, the moment of each view during your question and whether the mouse was still;
+  - the version of the game installed and the list of the expansions you own (and so which ones you lack), read from the game's files;
+  - the excerpts of the game's Encyclopedia that match your question (texts from your game's files);
+  - the last 4 exchanges of the past 10 minutes (your questions and the answers), so that "and then?" works;
+  - your first name, if you set `COPILOTE_PRENOM`;
+  - the copilot's own instructions (how to answer, reference notes about the game).
+
+  While answering, Google may run Google searches of its own choosing (the sources appear under the answer). The text of the answer is then sent again to Google to be read aloud. Nothing is sent to the author of the copilot.
 - **What stays on your PC**, in the copilot's folder:
   - `.env`: your key and settings;
   - `memoire\copilote-ck3\`: settings, icon position, a copy of the game's Encyclopedia texts, and `derniere-capture.jpg`, the main image of the last question (replaced at every question, kept to help with troubleshooting);
-  - `journal\copilote-ck3\`: your questions, the answers and their cost, and the app's log.
+  - `journal\copilote-ck3\`: your questions, the answers and their cost, and the app's log, `app.log`.
 - **Network:** the copilot's small local server only listens on your own PC (127.0.0.1): nobody on your network can reach it.
 - **Google's free tier:** see [section 2](#2-get-a-google-gemini-key).
 
 ## 11. Troubleshooting
 
 **The copilot is stuck over the game (nothing reacts, you can't move or close it).**
-Press **Ctrl+Shift+Backspace** (the erase key above Enter): the copilot starts fresh (icon collapsed, listening and voice stopped). Press it **twice** within 2 seconds to close it completely; even if it froze, it is closed by force after 4 seconds. The game does not receive these keys. You can also right-click the icon or the panel: **Collapse**, **Reload**, **Quit the copilot**. The copilot also watches itself: if it stops responding for about 10 seconds, it collapses and restarts on its own.
+Press **Ctrl+Shift+Backspace** (the erase key above Enter): the copilot starts fresh (icon collapsed, listening and voice stopped). Press it **twice** within 2 seconds to close it completely; even if it froze, it is closed by force after 4 seconds. The game does not receive these keys. You can also right-click the icon or the panel: **Collapse**, **Reload**, **Quit the copilot**. The copilot also watches itself: if it stops responding for about 10 seconds, it collapses and restarts on its own. After 3 such restarts within 10 minutes, it stops trying: the icon stays collapsed and the tooltip of the copilot's icon next to the clock (hover it) reads "CK3 Copilot stopped: right-click here, “Reset the copilot”". Left-click that icon, or right-click it > **Reset the copilot**, or press Ctrl+Shift+Backspace in the game: the icon and panel are rebuilt. If that tooltip reads "CK3 Copilot · Ctrl+Shift+Backspace taken by another app: if stuck, right-click here" instead, another program took the emergency shortcut: the right-click menu remains the way out.
 
 **The icon does not show over the game.**
 The icon only shows while CK3 is the window in front. If you still don't see it, switch CK3 to window mode: press **Esc**, then **Settings** > **Graphics** > **Display Mode** > **Window**. Clicking the copilot's icon next to the clock also shows it for 15 seconds, and **Reset the icon and panel position** brings it back to its place.
@@ -214,29 +227,40 @@ The shortcut only works while CK3 is the window in front: click in the game firs
 Open Windows **Settings > Privacy & security > Microphone**, and turn on **Microphone access** and **Let desktop apps access your microphone**. On Windows 10, similar switches are under **Settings > Privacy > Microphone**. For "No microphone found", plug in your headset. For "The microphone is not responding", check that no other program uses it, and that the right microphone is selected in **Settings > System > Sound > Input**.
 
 **"Electron not found" when you start the copilot, or Windows says "Problem with Shortcut".**
-The installation is not finished, or the copilot's folder was moved. Double-click `Installer-Copilote-CK3.cmd` again: it finishes the installation and recreates the desktop shortcut. If the black window also shows `npm` commands, ignore them: the installer does that for you.
+The installation is not finished, or the copilot's folder was moved. Double-click `Installer-Copilote-CK3.cmd` again: it finishes the installation and recreates the desktop shortcut. If the black window also shows `npm` commands, ignore them: the installer does that for you. If a Windows box titled "The CK3 Copilot could not start" shows instead, read its "Cause" line: it says what failed, and names the file with the details, `journal\copilote-ck3\app.log` in the copilot's folder; attach that file if you report the problem.
 
 **Windows refuses to open the installer.**
 Right-click the ZIP file you downloaded > **Properties** > tick **Unblock** at the bottom > **OK**, then extract it again. If the installer says you opened it "from inside the ZIP", extract the ZIP first (see [section 3](#3-download-the-copilot)).
 
 **Your antivirus warns about the copilot.**
-The copilot has a small Windows helper, `aide-windows.ps1`, run by Windows PowerShell. It does two things that antivirus programs watch closely:
+The copilot has a small Windows helper, `aide-windows.ps1`, run by Windows PowerShell without a visible window (and, like the installer, with `-ExecutionPolicy Bypass`, see [section 4](#4-run-the-installer)): some antivirus programs flag any "hidden PowerShell" for that alone. It also does two things that antivirus programs watch closely:
 
 - it captures the CK3 window (and only that window) to show it to the AI;
-- it uses a **low-level keyboard hook**, the Windows feature that also lets programs see keys pressed in other windows. Keyloggers use it too, which is why some antivirus programs flag it. Here, the helper only reacts to **Ctrl+Shift+Space**, and only while CK3 is in front: it holds back that one combination (otherwise CK3 would also see Space and pause or unpause the game), lets every other key through untouched, records nothing and sends nothing. It never sends keys or clicks. A hook is needed because Windows' normal shortcut system cannot tell when the keys are released (needed for the walkie-talkie mode) and would take the shortcut away from every other program.
+- it uses a **low-level keyboard hook**, the Windows feature that also lets programs see keys pressed in other windows. Keyloggers use it too, which is why some antivirus programs flag it. Here, the helper only reacts to two combinations, **Ctrl+Shift+Space** and **Ctrl+Shift+Backspace** (the emergency shortcut), and only while CK3 is in front: it holds back those two (otherwise CK3 would also see Space and pause or unpause the game), lets every other key through untouched, records nothing and sends nothing. It never sends keys or clicks. A hook is needed because Windows' normal shortcut system cannot tell when the keys are released (needed for the walkie-talkie mode) and would take the shortcut away from every other program.
 
 The code is open: you can read `aide-windows.ps1`, or ask someone you trust to check it. If your antivirus moved a file to quarantine, you can restore it and allow the copilot's folder, or simply not use the copilot. Do not turn your antivirus off.
 
 **No answer, or "No AI key found".**
+These messages show in the answer panel. When Google fails, the copilot switches to OpenAI if you gave it an OpenAI key ("switching to OpenAI"); without one, the message ends with "and there is no OpenAI key to take over", and there is no answer.
 - "No AI key found": the key is missing from `.env`. Run the installer again, it will ask for it.
-- "Google credit is used up": add credit in Google AI Studio (Billing).
+- "Google credit is used up": add credit in Google AI Studio (Billing). The copilot then goes through OpenAI for 5 minutes before trying Google again.
+- "Google daily quota reached": your key's quota for the day is used up (free tier). Wait for the next day, or set up billing (see [section 2](#2-get-a-google-gemini-key)). Same 5 minutes through OpenAI.
+- "Google is rate-limiting (too many requests)" or "Google is overloaded": before showing this, the copilot already tried again once on its own, after the delay Google asked for (8 seconds at most). Ask your question again in a moment.
+- "Google no longer knows the model": Google retired the model the copilot uses. Download the new version (see [section 12](#12-update)).
+- "Google key refused": the key in `.env` is wrong, or was deleted in AI Studio. See "Wrong key saved, or a new key?" below.
 - "Google is not responding": check your Internet connection, and check that your key still exists in AI Studio. On a free key, see [section 2](#2-get-a-google-gemini-key).
 
 **Wrong key saved, or a new key?**
 The installer keeps a key that is already saved and does not ask again. Open `.env` with Notepad (see [section 8](#8-language-voice-and-other-settings)), replace the text after `GEMINI_API_KEY=` with your new key (no space, no quotes), save, then restart the copilot.
 
+**"Encyclopedia not found" in the answer panel.**
+Shown once, with your first question; the copilot still answers ("Answering without it"), but it can no longer quote the exact texts of your version. It looks for CK3 where Steam installed it (Steam's folder, read from the Windows registry, and the libraries Steam declares), and the message names the Steam folders it looked in. If Steam or the game is somewhere unusual, open `.env` with Notepad (see [section 8](#8-language-voice-and-other-settings)) and give the game's folder on the `COPILOTE_CK3_DIR=` line, for example `COPILOTE_CK3_DIR=D:\SteamLibrary\steamapps\common\Crusader Kings III` (in Steam: right-click the game > **Manage** > **Browse local files** opens that folder), then restart the copilot. If the message says instead that `COPILOTE_CK3_DIR` is not the Crusader Kings III folder, the path is wrong: it must be the folder that contains `launcher\launcher-settings.json`.
+
 **"CK3 isn't running" while the game is open.**
 CK3 must be running and not minimized. Click in the game, then ask again.
+
+**"Windows helper down: capture unavailable" in the status line.**
+The copilot's small Windows helper, `aide-windows.ps1` (the PowerShell that captures the game and handles the shortcut), stopped or could not start: usually an antivirus, or a Windows setting that blocks PowerShell (see "Your antivirus warns about the copilot" above). The copilot restarts it by itself (after 1, 2 then 4 seconds, 3 times a minute at most), then tries again about a minute later and less and less often; until then it cannot look at the game. If it stays, quit the copilot (right-click its icon next to the clock > **Quit**) and start it again; the reason is in `journal\copilote-ck3\app.log`.
 
 **The answer comes in the wrong language.**
 Right-click the copilot's icon next to the clock > **Langue / Language**.
@@ -247,7 +271,7 @@ The copilot is in beta and can make mistakes. You can report it in the [Issues](
 ## 12. Update
 
 1. Quit the copilot (right-click its icon next to the clock > **Quit**).
-2. Download the new ZIP and extract it **to the same place as the first time** (for example `C:\Games`), so that it lands in the same `copilote-ck3-main` folder. When Windows asks, choose **Replace the files in the destination**. Your `.env`, settings and logs are not in the ZIP, so they are kept.
+2. Download the new ZIP and extract it **to the same place as the first time** (for example `%USERPROFILE%\CK3-Copilot`), so that it lands in the same `copilote-ck3-main` folder. When Windows asks, choose **Replace the files in the destination**. Your `.env`, settings and logs are not in the ZIP, so they are kept.
 3. Double-click `Installer-Copilote-CK3.cmd` again: it updates Electron if needed.
 
 ## 13. Uninstall
@@ -302,8 +326,8 @@ Avec l'offre payante, Google n'utilise ni tes demandes ni les réponses pour am�
 
 1. Sur la [page GitHub du copilote](https://github.com/ameuryamani-lab/copilote-ck3), clique sur le bouton vert **Code**, puis sur **Download ZIP**.
 2. Ouvre ton dossier Téléchargements, fais un **clic droit** sur le fichier ZIP (`copilote-ck3-main.zip`), puis **Extraire tout...**.
-3. Choisis un dossier que tu garderas, par exemple `C:\Jeux` (tape-le dans la case, ou clique sur **Parcourir...**), puis clique sur **Extraire**. Évite le dossier Téléchargements (facile à vider par erreur) et les dossiers synchronisés par OneDrive (le copilote prend environ 400 Mo).
-4. Windows met un dossier nommé **`copilote-ck3-main`** dans le dossier choisi, par exemple `C:\Jeux\copilote-ck3-main`. **C'est le dossier du copilote :** tout ce que ce guide appelle « le dossier du copilote » est là.
+3. Choisis un dossier que tu garderas, dans ton propre dossier utilisateur : par exemple `%USERPROFILE%\CK3-Copilot` (tape-le dans la case, ou clique sur **Parcourir...** ; pour voir ton dossier utilisateur, tape `%USERPROFILE%` dans la barre d'adresse de l'Explorateur de fichiers), puis clique sur **Extraire**. Pourquoi là : le dossier du copilote contiendra `.env`, le fichier avec ta clé, et un dossier commun à tous les comptes du PC (comme `C:\Jeux`) laisserait les autres comptes Windows le lire. Évite `Program Files` (l'installation y échoue sans droits d'administrateur, et l'installation le refuse), le dossier Téléchargements (facile à vider par erreur) et les dossiers synchronisés par OneDrive (le copilote prend environ 400 Mo).
+4. Windows met un dossier nommé **`copilote-ck3-main`** dans le dossier choisi, par exemple `%USERPROFILE%\CK3-Copilot\copilote-ck3-main`. **C'est le dossier du copilote :** tout ce que ce guide appelle « le dossier du copilote » est là.
 
 Ne lance rien depuis l'intérieur du ZIP : extrais-le toujours d'abord.
 
@@ -318,12 +342,14 @@ Ouvre le dossier du copilote (`copilote-ck3-main`) et **double-clique sur `Insta
 > - « Fichier ouvert - Avertissement de sécurité » : clique sur **Exécuter**.
 >
 > L'installation est du simple texte : tu peux ouvrir `Installer-Copilote-CK3.cmd` et `installer.ps1` avec le Bloc-notes et lire ce qu'ils font avant de les lancer.
+>
+> Si tu lis `Installer-Copilote-CK3.cmd`, tu verras qu'il lance Windows PowerShell avec `-ExecutionPolicy Bypass` : par défaut, Windows refuse de lancer les scripts `.ps1` sur lesquels on double-clique, et cette option lève cette règle pour ce seul processus PowerShell ; elle ne change aucun réglage de ton PC. PowerShell tourne dans la fenêtre noire que tu vois : rien ne tourne caché.
 
 L'installation passe par 5 étapes :
 
 1. **Windows et dossier.** Elle vérifie que tu as Windows 10 ou 11 et que le dossier est complet.
-2. **Node.js.** S'il manque ou s'il est trop ancien, elle t'explique quoi faire et te propose d'ouvrir [nodejs.org](https://nodejs.org/) dans ton navigateur. Télécharge la version marquée **LTS**, installe-la avec les options par défaut (« Tools for Native Modules » est inutile), puis double-clique de nouveau sur l'installation. Elle ne télécharge et ne lance jamais de programme d'elle-même.
-3. **Electron.** Elle installe le moteur de l'appli, Electron (environ 150 Mo). Cela prend de quelques secondes à quelques minutes selon ta connexion. D'où ça vient : les petits paquets listés dans `package.json` viennent du registre officiel npm (registry.npmjs.org), et Electron lui-même des versions officielles d'Electron sur GitHub (github.com/electron/electron) ; le téléchargement est vérifié avec son empreinte SHA-256 publiée. L'installation ne télécharge rien d'autre et ne lance jamais un programme venu d'Internet.
+2. **Node.js.** S'il manque ou s'il est trop ancien, elle t'explique quoi faire et te propose d'ouvrir [nodejs.org](https://nodejs.org/) dans ton navigateur. Télécharge la version marquée **LTS**, installe-la avec les options par défaut (« Tools for Native Modules » est inutile), puis double-clique de nouveau sur l'installation. Elle ne télécharge ni n'installe jamais Node.js elle-même : c'est toi qui le fais, depuis nodejs.org, dans ton navigateur.
+3. **Electron.** Elle installe le moteur de l'appli, Electron (environ 150 Mo). Cela prend de quelques secondes à quelques minutes selon ta connexion. Pour être exact sur ce qui est téléchargé et lancé : les 13 petits paquets listés dans `package-lock.json` viennent du registre officiel npm (registry.npmjs.org), et npm vérifie chacun avec l'empreinte d'intégrité notée dans ce fichier ; Electron lui-même est téléchargé par son propre script (`install.js`, fourni dans le paquet `electron`) depuis les versions officielles d'Electron sur GitHub (github.com/electron/electron) et vérifié avec les sommes SHA-256 fournies dans ce paquet. Ce sont des programmes venus d'Internet qui tournent sur ton PC, comme pour toute installation : l'installation les limite à ces deux sources officielles, ne télécharge rien depuis les serveurs de l'auteur, et nodejs.org n'est jamais qu'ouvert dans ton navigateur. Si le premier essai de npm (`npm ci`) échoue et que l'installation dit « npm ci a échoué (package-lock.json absent ou refusé) : passage à npm install SANS le fichier de verrou », les versions des paquets sont alors celles que npm choisit, pas celles vérifiées par l'auteur (aucun script de paquet n'est lancé) ; tu peux aussi t'arrêter là et relancer l'installation plus tard.
 4. **Ta clé Gemini.** Elle te demande de coller ta clé : **Ctrl+V** (ou clic droit), puis **Entrée**. La clé s'affiche en étoiles (`*****`) : c'est normal. L'installation vérifie la clé auprès de Google, puis l'enregistre dans un fichier nommé `.env`, dans le dossier du copilote, sur ton PC seulement. Pas encore de clé ? Appuie sur Entrée pour passer, et relance l'installation plus tard.
 5. **Raccourci et micro.** Elle crée un raccourci **CK3 Copilot** sur ton Bureau et vérifie que Windows laisse les applis de bureau utiliser le micro.
 
@@ -333,7 +359,7 @@ Voici à peu près ce que tu dois voir. C'est raccourci : dans la vraie fenêtre
 
 ```
 Copilote CK3 - installation
-Folder / Dossier : C:\Jeux\copilote-ck3-main
+Folder / Dossier : <your user folder>\CK3-Copilot\copilote-ck3-main
 
 [1/5] Vérification de Windows et de ce dossier
 Windows 11 (build 26200), 64 bits : OK.
@@ -412,7 +438,7 @@ Tu peux donc lui parler comme à un ami assis à côté de toi : « Regarde ce c
 
 **Astuce :** arrête la souris une demi-seconde sur ce que tu veux qu'il voie. CK3 ouvre ses info-bulles quand la souris s'arrête, et le copilote préfère les moments où la souris était immobile.
 
-Seule la fenêtre de CK3 est capturée : jamais ton Bureau ni tes autres programmes, et jamais les fenêtres posées sur le jeu (le copilote compris). Les vues restent en mémoire et sont oubliées après la question ; seule l'image principale de la dernière question est gardée sur le disque (voir [Vie privée](#10-vie-privée)).
+Seule la fenêtre de CK3 est capturée : jamais ton Bureau ni tes autres programmes, et jamais les fenêtres posées sur le jeu (le copilote compris). Une nuance : ce qu'un autre programme dessine *dans* l'image même du jeu, comme l'overlay Steam (Maj+Tab), fait partie de la fenêtre de CK3 et est capturé avec elle. Les vues restent en mémoire et sont oubliées après la question ; seule l'image principale de la dernière question est gardée sur le disque (voir [Vie privée](#10-vie-privée)).
 
 ### 8. Langue, voix et autres réglages
 
@@ -421,16 +447,18 @@ Fais un clic droit sur l'icône du copilote près de l'horloge :
 - **Voix activée / Voix désactivée :** réponses lues à voix haute ou non (le bouton 2 du panneau fait la même chose).
 - **Oublier la conversation :** la question suivante repart de zéro.
 - **Replacer l'icône et le panneau.**
+- **Réinitialiser le copilote (Ctrl+Maj+Retour arrière) :** la même chose que le raccourci d'urgence : l'icône et le panneau sont refaits à neuf (écoute et voix coupées, icône repliée et montrée 8 secondes) ; tes réglages et la conversation sont gardés. À utiliser si le copilote ne réagit plus (voir [En cas de problème](#11-en-cas-de-problème)).
 - **Langue / Language :** Français ou English. Par défaut, le copilote suit la langue de Windows. Changer de langue efface aussi la conversation.
-- **Quitter.**
+- **Quitter (Ctrl+Maj+Retour arrière deux fois en moins de 2 s).**
 
-Trois réglages facultatifs se mettent dans le fichier `.env`, dans le dossier du copilote. Pour le modifier : clic droit sur `.env` > **Ouvrir avec** > **Bloc-notes**, change la ligne, puis **Fichier > Enregistrer**.
+Quatre réglages facultatifs se mettent dans le fichier `.env`, dans le dossier du copilote. Pour le modifier : clic droit sur `.env` > **Ouvrir avec** > **Bloc-notes**, change la ligne, puis **Fichier > Enregistrer**.
 
 - `OPENAI_API_KEY=` : colle une clé OpenAI après le signe `=` si tu veux le secours.
 - `COPILOTE_LANGUE=fr` ou `en` : la langue des réponses tant que tu n'en as pas choisi une dans le menu.
 - `COPILOTE_PRENOM=TonPrénom` : le copilote t'appelle par ton prénom (sinon il parle « au joueur »). Ton prénom part alors chez Google avec chaque question.
+- `COPILOTE_CK3_DIR=D:\SteamLibrary\steamapps\common\Crusader Kings III` : le dossier du jeu, seulement si Steam est installé à un endroit inhabituel et que le copilote dit ne pas trouver l'Encyclopédie du jeu (voir [En cas de problème](#11-en-cas-de-problème)).
 
-Dans le fichier, les lignes `COPILOTE_LANGUE` et `COPILOTE_PRENOM` commencent par `#`, ce qui les désactive. Pour en utiliser une, **efface le `#` et l'espace qui le suit**, puis écris ta valeur après le signe `=`. Par exemple, `# COPILOTE_PRENOM=` devient `COPILOTE_PRENOM=Alex`. Les lignes qui commencent par `#` ne sont que des notes : le copilote les ignore.
+Dans le fichier, les lignes `COPILOTE_LANGUE`, `COPILOTE_PRENOM` et `COPILOTE_CK3_DIR` commencent par `#`, ce qui les désactive. Pour en utiliser une, **efface le `#` et l'espace qui le suit**, puis écris ta valeur après le signe `=`. Par exemple, `# COPILOTE_PRENOM=` devient `COPILOTE_PRENOM=Alex`. Les lignes qui commencent par `#` ne sont que des notes : le copilote les ignore.
 
 Relance le copilote (menu > **Quitter**, puis le raccourci du Bureau) après avoir modifié `.env`.
 
@@ -451,18 +479,27 @@ Prix vérifiés le 7 octobre 2026 ; Google peut les changer.
 
 - **Micro :** il ne s'ouvre que quand tu appuies sur les touches ou cliques sur l'icône, et l'icône reste rouge pendant qu'il écoute. Ta voix n'est pas enregistrée sur ton PC.
 - **Écran :** seule la fenêtre de CK3 est capturée, seulement pendant une question (40 secondes au plus), et les vues restent en mémoire.
-- **Ce qui part, et chez qui :** ta question enregistrée, jusqu'à 4 vues de la fenêtre de CK3 (avec des zooms autour de la souris), les derniers échanges et, si tu l'as réglé, ton prénom partent chez Google (ou chez OpenAI si tu as ajouté une clé de secours et que Google échoue). Rien n'est envoyé à l'auteur du copilote.
+- **Ce qui part, et chez qui.** À chaque question, le copilote envoie à Google (ou à OpenAI si tu as ajouté une clé de secours et que Google échoue) :
+  - l'enregistrement de ta question (pour la transcrire), puis sa transcription ;
+  - jusqu'à 4 vues de la fenêtre de CK3 avec des zooms autour de la souris, avec la position du curseur dans la fenêtre, la taille de la fenêtre, le moment de chaque vue pendant ta question et si la souris était immobile ;
+  - la version du jeu installée et la liste des extensions que tu possèdes (et donc celles qui te manquent), lues dans les fichiers du jeu ;
+  - les extraits de l'Encyclopédie du jeu qui correspondent à ta question (textes tirés des fichiers de ton jeu) ;
+  - les 4 derniers échanges des 10 dernières minutes (tes questions et les réponses), pour que « et ensuite ? » marche ;
+  - ton prénom, si tu as réglé `COPILOTE_PRENOM` ;
+  - les consignes du copilote lui-même (comment répondre, notes de référence sur le jeu).
+
+  Pendant la réponse, Google peut faire des recherches Google de son choix (les sources apparaissent sous la réponse). Le texte de la réponse repart ensuite chez Google pour être lu à voix haute. Rien n'est envoyé à l'auteur du copilote.
 - **Ce qui reste sur ton PC**, dans le dossier du copilote :
   - `.env` : ta clé et tes réglages ;
   - `memoire\copilote-ck3\` : réglages, position de l'icône, une copie des textes de l'Encyclopédie du jeu, et `derniere-capture.jpg`, l'image principale de la dernière question (remplacée à chaque question, gardée pour aider en cas de problème) ;
-  - `journal\copilote-ck3\` : tes questions, les réponses et leur coût, et le journal de l'appli.
+  - `journal\copilote-ck3\` : tes questions, les réponses et leur coût, et le journal de l'appli, `app.log`.
 - **Réseau :** le petit serveur local du copilote n'écoute que sur ton propre PC (127.0.0.1) : personne sur ton réseau ne peut le joindre.
 - **Offre gratuite de Google :** voir [la partie 2](#2-obtenir-une-clé-google-gemini).
 
 ### 11. En cas de problème
 
 **Le copilote reste bloqué sur le jeu (plus rien ne réagit, impossible de le déplacer ou de le fermer).**
-Appuie sur **Ctrl+Maj+Retour arrière** (la touche d'effacement, au-dessus d'Entrée) : le copilote repart à neuf (icône repliée, écoute et voix coupées). Appuie **deux fois** en moins de 2 secondes pour le fermer complètement ; même figé, il est arrêté de force au bout de 4 secondes. Le jeu ne reçoit pas ces touches. Tu peux aussi faire un clic droit sur l'icône ou le panneau : **Replier**, **Recharger**, **Quitter le copilote**. Le copilote se surveille aussi tout seul : s'il ne répond plus pendant une dizaine de secondes, il se replie et repart.
+Appuie sur **Ctrl+Maj+Retour arrière** (la touche d'effacement, au-dessus d'Entrée) : le copilote repart à neuf (icône repliée, écoute et voix coupées). Appuie **deux fois** en moins de 2 secondes pour le fermer complètement ; même figé, il est arrêté de force au bout de 4 secondes. Le jeu ne reçoit pas ces touches. Tu peux aussi faire un clic droit sur l'icône ou le panneau : **Replier**, **Recharger**, **Quitter le copilote**. Le copilote se surveille aussi tout seul : s'il ne répond plus pendant une dizaine de secondes, il se replie et repart. Après 3 redémarrages de ce genre en 10 minutes, il n'essaie plus : l'icône reste repliée et l'info-bulle de l'icône du copilote près de l'horloge (passe la souris dessus) dit « Copilote CK3 arrêté : clic droit ici, « Réinitialiser le copilote » ». Clic gauche sur cette icône, ou clic droit > **Réinitialiser le copilote**, ou Ctrl+Maj+Retour arrière dans le jeu : l'icône et le panneau sont refaits à neuf. Si cette info-bulle dit plutôt « Copilote CK3 · Ctrl+Maj+Retour arrière pris par une autre appli : en cas de blocage, clic droit ici », un autre programme a pris le raccourci d'urgence : le menu du clic droit reste la porte de sortie.
 
 **L'icône n'apparaît pas sur le jeu.**
 L'icône ne s'affiche que quand CK3 est la fenêtre au premier plan. Si tu ne la vois toujours pas, passe CK3 en mode fenêtre : appuie sur **Échap**, puis **Settings** > **Graphics** > **Display Mode** > **Window** (le jeu est en anglais). Un clic sur l'icône du copilote près de l'horloge l'affiche aussi 15 secondes, et **Replacer l'icône et le panneau** la remet à sa place.
@@ -474,29 +511,40 @@ Le raccourci ne marche que quand CK3 est la fenêtre au premier plan : clique d'
 Ouvre les **Paramètres** de Windows > **Confidentialité et sécurité** > **Micro** (ou **Microphone**, selon la version), et active **Accès au micro** et **Autoriser les applications de bureau à accéder à votre micro**. Sous Windows 10, des interrupteurs semblables sont dans **Paramètres > Confidentialité > Microphone**. Pour « Aucun micro trouvé », branche ton casque. Pour « Le micro ne répond pas », vérifie qu'aucun autre programme ne l'utilise et que le bon micro est choisi dans **Paramètres > Système > Son > Entrée**.
 
 **« Electron not found / Electron introuvable » au lancement, ou Windows affiche « Problème de raccourci ».**
-L'installation n'est pas finie, ou le dossier du copilote a été déplacé. Double-clique de nouveau sur `Installer-Copilote-CK3.cmd` : elle termine l'installation et refait le raccourci du Bureau. Si la fenêtre noire propose aussi des commandes `npm`, ignore-les : l'installation s'en charge.
+L'installation n'est pas finie, ou le dossier du copilote a été déplacé. Double-clique de nouveau sur `Installer-Copilote-CK3.cmd` : elle termine l'installation et refait le raccourci du Bureau. Si la fenêtre noire propose aussi des commandes `npm`, ignore-les : l'installation s'en charge. Si une boîte Windows intitulée « Le Copilote CK3 n'a pas pu démarrer » s'affiche à la place, lis sa ligne « Cause » : elle dit ce qui a échoué, et nomme le fichier où est le détail, `journal\copilote-ck3\app.log` dans le dossier du copilote ; joins ce fichier si tu signales le problème.
 
 **Windows refuse d'ouvrir l'installation.**
 Clic droit sur le fichier ZIP téléchargé > **Propriétés** > coche **Débloquer** en bas > **OK**, puis extrais-le de nouveau. Si l'installation dit que tu l'as ouverte « depuis l'intérieur du ZIP », extrais d'abord le ZIP (voir [la partie 3](#3-télécharger-le-copilote)).
 
 **Ton antivirus se méfie du copilote.**
-Le copilote a une petite aide Windows, `aide-windows.ps1`, lancée par Windows PowerShell. Elle fait deux choses que les antivirus surveillent de près :
+Le copilote a une petite aide Windows, `aide-windows.ps1`, lancée par Windows PowerShell sans fenêtre visible (et, comme l'installation, avec `-ExecutionPolicy Bypass`, voir [la partie 4](#4-lancer-linstallation)) : certains antivirus se méfient de tout « PowerShell caché » rien que pour ça. Elle fait aussi deux choses que les antivirus surveillent de près :
 
 - elle capture la fenêtre de CK3 (et seulement elle) pour la montrer à l'IA ;
-- elle utilise un **crochet clavier bas niveau**, la fonction de Windows qui permet aussi à un programme de voir les touches tapées dans les autres fenêtres. Les enregistreurs de frappe s'en servent aussi, d'où la méfiance de certains antivirus. Ici, l'aide ne réagit qu'à **Ctrl+Maj+Espace**, et seulement quand CK3 est au premier plan : elle retient cette seule combinaison (sinon CK3 verrait aussi Espace et mettrait le jeu en pause ou le relancerait), laisse passer toutes les autres touches sans y toucher, n'enregistre rien et n'envoie rien. Elle n'envoie jamais de touche ni de clic. Il faut un crochet parce que le système de raccourcis normal de Windows ne sait pas quand les touches sont relâchées (nécessaire pour le mode talkie-walkie), et prendrait le raccourci à tous les autres programmes.
+- elle utilise un **crochet clavier bas niveau**, la fonction de Windows qui permet aussi à un programme de voir les touches tapées dans les autres fenêtres. Les enregistreurs de frappe s'en servent aussi, d'où la méfiance de certains antivirus. Ici, l'aide ne réagit qu'à deux combinaisons, **Ctrl+Maj+Espace** et **Ctrl+Maj+Retour arrière** (le raccourci d'urgence), et seulement quand CK3 est au premier plan : elle retient ces deux-là (sinon CK3 verrait aussi Espace et mettrait le jeu en pause ou le relancerait), laisse passer toutes les autres touches sans y toucher, n'enregistre rien et n'envoie rien. Elle n'envoie jamais de touche ni de clic. Il faut un crochet parce que le système de raccourcis normal de Windows ne sait pas quand les touches sont relâchées (nécessaire pour le mode talkie-walkie), et prendrait le raccourci à tous les autres programmes.
 
 Le code est ouvert : tu peux lire `aide-windows.ps1`, ou demander à quelqu'un de confiance de le vérifier. Si ton antivirus a mis un fichier en quarantaine, tu peux le restaurer et autoriser le dossier du copilote, ou simplement ne pas utiliser le copilote. Ne désactive pas ton antivirus.
 
 **Pas de réponse, ou « Aucune clé d'IA trouvée ».**
+Ces messages s'affichent dans le panneau de réponse. Quand Google échoue, le copilote passe par OpenAI si tu lui as donné une clé OpenAI (« je passe par OpenAI ») ; sans elle, le message se termine par « et pas de clé OpenAI pour prendre le relais », et il n'y a pas de réponse.
 - « Aucune clé d'IA trouvée » : la clé manque dans `.env`. Relance l'installation, elle te la demandera.
-- « Crédit Google épuisé » : ajoute du crédit dans Google AI Studio (Billing).
+- « Crédit Google épuisé » : ajoute du crédit dans Google AI Studio (Billing). Le copilote passe ensuite par OpenAI pendant 5 minutes avant de réessayer Google.
+- « Quota Google du jour atteint » : le quota du jour de ta clé est épuisé (offre gratuite). Attends le lendemain, ou active la facturation (voir [la partie 2](#2-obtenir-une-clé-google-gemini)). Mêmes 5 minutes par OpenAI.
+- « Google limite le rythme (trop de demandes) » ou « Google est surchargé » : avant d'afficher ce message, le copilote a déjà réessayé une fois tout seul, après le délai demandé par Google (8 secondes au plus). Repose ta question dans un moment.
+- « Google ne connaît plus le modèle » : Google a retiré le modèle que le copilote utilise. Télécharge la nouvelle version (voir [la partie 12](#12-mettre-à-jour)).
+- « Clé Google refusée » : la clé dans `.env` est fausse, ou a été supprimée dans AI Studio. Voir « Mauvaise clé enregistrée, ou nouvelle clé ? » plus bas.
 - « Google ne répond pas » : vérifie ta connexion Internet, et que ta clé existe toujours dans AI Studio. Avec une clé gratuite, voir [la partie 2](#2-obtenir-une-clé-google-gemini).
 
 **Mauvaise clé enregistrée, ou nouvelle clé ?**
 L'installation garde une clé déjà enregistrée et ne la redemande pas. Ouvre `.env` avec le Bloc-notes (voir [la partie 8](#8-langue-voix-et-autres-réglages)), remplace le texte après `GEMINI_API_KEY=` par ta nouvelle clé (sans espace ni guillemets), enregistre, puis relance le copilote.
 
+**« Encyclopédie introuvable » dans le panneau de réponse.**
+Affiché une fois, à ta première question ; le copilote répond quand même (« Je réponds sans elle »), mais il ne peut plus citer les textes exacts de ta version. Il cherche CK3 là où Steam l'a installé (le dossier de Steam, lu dans le registre de Windows, et les bibliothèques que Steam déclare), et le message nomme les dossiers Steam où il a regardé. Si Steam ou le jeu est à un endroit inhabituel, ouvre `.env` avec le Bloc-notes (voir [la partie 8](#8-langue-voix-et-autres-réglages)) et donne le dossier du jeu sur la ligne `COPILOTE_CK3_DIR=`, par exemple `COPILOTE_CK3_DIR=D:\SteamLibrary\steamapps\common\Crusader Kings III` (dans Steam : clic droit sur le jeu > **Gérer** > **Parcourir les fichiers locaux** ouvre ce dossier), puis relance le copilote. Si le message dit plutôt que `COPILOTE_CK3_DIR` n'est pas le dossier de Crusader Kings III, le chemin est faux : ce doit être le dossier qui contient `launcher\launcher-settings.json`.
+
 **« CK3 n'est pas lancé » alors que le jeu est ouvert.**
 CK3 doit être lancé et pas réduit. Clique dans le jeu, puis repose ta question.
+
+**« Aide Windows en panne : capture impossible » dans la ligne d'état.**
+La petite aide Windows du copilote, `aide-windows.ps1` (le PowerShell qui capture le jeu et gère le raccourci), s'est arrêtée ou n'a pas pu démarrer : en général un antivirus, ou un réglage de Windows qui bloque PowerShell (voir « Ton antivirus se méfie du copilote » plus haut). Le copilote la relance tout seul (après 1, 2 puis 4 secondes, 3 fois par minute au plus), puis réessaie environ une minute plus tard et de moins en moins souvent ; en attendant, il ne peut pas regarder le jeu. Si ça dure, quitte le copilote (clic droit sur son icône près de l'horloge > **Quitter**) et relance-le ; la raison est dans `journal\copilote-ck3\app.log`.
 
 **La réponse arrive dans la mauvaise langue.**
 Clic droit sur l'icône du copilote près de l'horloge > **Langue / Language**.
@@ -507,7 +555,7 @@ Le copilote est en bêta et peut se tromper. Tu peux le signaler dans l'onglet [
 ### 12. Mettre à jour
 
 1. Quitte le copilote (clic droit sur son icône près de l'horloge > **Quitter**).
-2. Télécharge le nouveau ZIP et extrais-le **au même endroit que la première fois** (par exemple `C:\Jeux`), pour qu'il arrive dans le même dossier `copilote-ck3-main`. Quand Windows le demande, choisis **Remplacer les fichiers dans la destination**. Ton `.env`, tes réglages et tes journaux ne sont pas dans le ZIP : ils sont gardés.
+2. Télécharge le nouveau ZIP et extrais-le **au même endroit que la première fois** (par exemple `%USERPROFILE%\CK3-Copilot`), pour qu'il arrive dans le même dossier `copilote-ck3-main`. Quand Windows le demande, choisis **Remplacer les fichiers dans la destination**. Ton `.env`, tes réglages et tes journaux ne sont pas dans le ZIP : ils sont gardés.
 3. Double-clique de nouveau sur `Installer-Copilote-CK3.cmd` : il met Electron à jour si besoin.
 
 ### 13. Désinstaller

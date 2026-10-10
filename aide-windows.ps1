@@ -18,7 +18,10 @@
 # Les messages pour Ameur sont en français côté Node (aide-windows.mjs) : ici, seulement des codes ASCII.
 # C# 5 seulement (PowerShell 5.1) : pas de $"", pas de =>, pas de ?. Add-Type traite les avertissements comme des erreurs
 # (une variable inutilisée suffit à tout bloquer) : relancer essais/essai-aide.mjs après chaque retouche.
-param([string]$Processus = 'ck3', [switch]$SansCrochet, [int]$Parent = 0, [string]$Journal = '')
+# - diagnostic du processus principal figé (10/10/2026, test ECC : le chien de garde d'Electron vit dans le processus soupçonné) :
+#   Electron (-Parent) vivant mais muet depuis plus de 30 s (-SilenceMs, raccourci par les essais) → UNE ligne « Electron
+#   silencieux depuis N s » dans app.log par silence. Aucune relance automatique tant que la cause n'est pas prouvée.
+param([string]$Processus = 'ck3', [switch]$SansCrochet, [int]$Parent = 0, [string]$Journal = '', [int]$SilenceMs = 30000)
 $ErrorActionPreference = 'Stop'
 # Erreurs de PowerShell en UTF-8 sur stderr : Node les lit ainsi pour le journal.
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
@@ -186,6 +189,7 @@ namespace CopiloteCk3
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
     [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr h, uint code);
+    [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr h, uint ms);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr GetModuleHandle(string nom);
     [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint acces, bool heriter, uint pid);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
@@ -198,6 +202,8 @@ namespace CopiloteCk3
     const uint GA_ROOT = 2;
     const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000, PROCESS_TERMINATE = 0x0001, SYNCHRONIZE = 0x00100000;
     public const int DELAI_ARRET_FORCE_MS = 4000;   // « quitter » : Electron a ce délai pour partir seul
+    const uint WAIT_TIMEOUT = 0x102;                 // WaitForSingleObject(h, 0) : le processus tourne encore
+    static int silenceMs = 30000;                    // Electron muet plus longtemps que cela : une ligne de diagnostic (-SilenceMs)
 
     // ---------- état ----------
     static string nomProcessus = "ck3";
@@ -237,11 +243,12 @@ namespace CopiloteCk3
     static Thread filUrgence;
     static long derniereCommande, urgences;
 
-    public static void Executer(string processus, bool avecCrochet, int parent, string journal)
+    public static void Executer(string processus, bool avecCrochet, int parent, string journal, int silence)
     {
       if (!string.IsNullOrEmpty(processus)) nomProcessus = processus;
       if (parent > 0) hParent = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, false, (uint)parent);
       fichierJournal = string.IsNullOrEmpty(journal) ? null : journal;
+      if (silence > 0) silenceMs = silence;
       derniereCommande = Stopwatch.GetTimestamp();
       bool dpiProcessus = false;
       try { dpiProcessus = SetProcessDpiAwarenessContext(PER_MONITOR_V2); } catch (Exception) { }
@@ -261,6 +268,7 @@ namespace CopiloteCk3
       filSouris = new Thread(BoucleSouris); filSouris.IsBackground = true; filSouris.Start();
       filTravail = new Thread(Travailleur); filTravail.IsBackground = true; filTravail.Start();
       filUrgence = new Thread(BoucleUrgence); filUrgence.IsBackground = true; filUrgence.Start();
+      if (hParent != IntPtr.Zero && fichierJournal != null) { Thread filSilence = new Thread(BoucleSilence); filSilence.IsBackground = true; filSilence.Start(); }
 
       Envoyer(new Obj().Bool("pret", true).Ent("pid", Process.GetCurrentProcess().Id).Txt("processus", nomProcessus)
         .Bool("crochet", hCrochet != IntPtr.Zero).Ent("erreurCrochet", erreurCrochet).Bool("dpiProcessus", dpiProcessus)
@@ -306,11 +314,32 @@ namespace CopiloteCk3
       quitterDemande.Set();
     }
 
-    // Une ligne dans app.log, au format du journal d'Electron (heure locale du PC).
-    static void NoterJournal(string texte)
+    // Diagnostic sans risque du processus principal figé (10/10/2026) : Electron tient le fil de son chien de garde, donc figé,
+    // il ne peut rien noter lui-même. En temps normal il demande l'état toutes les 3 s : vivant (poignée non signalée) mais sans
+    // commande depuis plus de silenceMs, UNE ligne dans app.log, puis plus rien jusqu'à la commande suivante (un silence = une
+    // ligne, jamais en boucle). Aucune relance automatique : on observe d'abord.
+    static void BoucleSilence()
+    {
+      bool note = false;
+      int pas = Math.Max(200, Math.Min(5000, silenceMs / 4));
+      while (true)
+      {
+        Thread.Sleep(pas);
+        long silence = (Stopwatch.GetTimestamp() - Interlocked.Read(ref derniereCommande)) * 1000 / Stopwatch.Frequency;
+        if (silence < silenceMs) { note = false; continue; }
+        if (note || WaitForSingleObject(hParent, 0) != WAIT_TIMEOUT) continue;   // déjà noté, ou Electron parti (stdin fermera l'aide)
+        note = true;
+        NoterJournal("Electron silencieux depuis " + (silence / 1000).ToString(CultureInfo.InvariantCulture)
+          + " s (vivant, mais aucune commande reçue par l'aide Windows : processus principal peut-être figé)", "AVERT");
+      }
+    }
+
+    // Une ligne dans app.log, au format du journal d'Electron (heure locale du PC, niveau ERREUR sauf indication).
+    static void NoterJournal(string texte) { NoterJournal(texte, "ERREUR"); }
+    static void NoterJournal(string texte, string niveau)
     {
       if (fichierJournal == null) return;
-      try { File.AppendAllText(fichierJournal, DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss", CultureInfo.InvariantCulture) + " ERREUR " + texte + "\n", new UTF8Encoding(false)); }
+      try { File.AppendAllText(fichierJournal, DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss", CultureInfo.InvariantCulture) + " " + niveau + " " + texte + "\n", new UTF8Encoding(false)); }
       catch (Exception) { }
     }
 
@@ -1030,4 +1059,4 @@ namespace CopiloteCk3
 '@
 
 Add-Type -TypeDefinition $source -ReferencedAssemblies System.Drawing -Language CSharp
-[CopiloteCk3.Aide]::Executer($Processus, -not $SansCrochet, $Parent, $Journal)
+[CopiloteCk3.Aide]::Executer($Processus, -not $SansCrochet, $Parent, $Journal, $SilenceMs)

@@ -1,8 +1,11 @@
 // Essai du cerveau du copilote CK3 (agent/copilote-jeu.mjs + agent/copilote-ck3-savoir.mjs), sans Electron ni aide Windows.
 // Aucune vraie capture : une fausse aide renvoie l'image synthétique ck3-test.jpg. Coût réel : quelques cents (Gemini, un appel OpenAI).
-// Usage : node essai-cerveau.mjs [savoir,a,b,suite,annulation,silence,erreurs,secours,regard,regard-reel] [--image=chemin.jpg] [--regenerer]
+// Usage : node essai-cerveau.mjs [savoir,a,b,suite,annulation,silence,erreurs,secours,regard,google,regard-reel] [--image=chemin.jpg] [--regenerer]
 //         [--question="…"] [--langue=en] [--sans-voix]
-// (savoir, erreurs et regard ne coûtent rien ; secours fait UN appel OpenAI ; les autres appellent Gemini.)
+// (savoir, erreurs, regard et google ne coûtent rien ; secours fait UN appel OpenAI ; les autres appellent Gemini.)
+// google (10/10/2026, test ECC) : erreurs Google classées (429 limite retenté, quota du jour, modèle inconnu, clé refusée y compris
+// pendant l'écoute vocale, 503 retenté, crédit, 429 de la voix coupé par la garde du premier son) avec un faux Google et un faux
+// OpenAI, Encyclopédie introuvable dite une fois, état de l'aide Windows en panne.
 // regard (07/10/2026) : le regard pendant la question, avec une fausse aide qui joue des scènes (info-bulle qui apparaît, écran
 // immobile, CK3 quitté, CK3 fermé, souris immobile avant l'appui, impressions lentes, son muet, capture de l'appui ratée) et un
 // faux Google qui garde la requête envoyée : images choisies, libellés, résolutions, annulation, vues d'un appui précédent jamais
@@ -27,7 +30,7 @@ const QUESTION_PARLEE = 'Le bouton pour déclarer la guerre est grisé. Comment 
 const LANGUE = arg('langue') === 'en' ? 'en' : 'fr';
 const VOIX = !process.argv.includes('--sans-voix');
 const QUESTION_ECRITE = arg('question') || (LANGUE === 'en' ? 'Why can\'t I declare war on Guilhem of Toulouse?' : 'Pourquoi je ne peux pas déclarer la guerre à Guilhem de Toulouse ?');   // --question="…" pour une autre
-const ETAPES = (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'savoir,a,b,suite,annulation,silence,erreurs,secours,regard').split(',');
+const ETAPES = (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'savoir,a,b,suite,annulation,silence,erreurs,secours,regard,google').split(',');
 
 // Langue d'une réponse, à la louche : mots outils français contre anglais, hors libellés en gras (anglais dans les deux langues).
 function langueDe(texte) {
@@ -88,7 +91,10 @@ async function questionParlee() {
   return wav;
 }
 
-const image = await readFile(IMAGE);
+// Image d'essai (--image=) : sans elle, la dernière capture de dépannage du copilote, sinon un JPEG factice (les étapes payantes
+// enverraient alors une image sans intérêt à Gemini, mais l'essai ne meurt plus au chargement : remarque du test ECC du 10/10/2026).
+const image = await readFile(IMAGE).catch(() => readFile(path.join(ROOT, 'memoire', 'copilote-ck3', 'derniere-capture.jpg')))
+  .catch(() => { console.log(`(image d'essai absente : ${IMAGE} ; image factice)`); return Buffer.from('image-factice'); });
 const fausseAide = (opts = {}) => ({
   async etat() { return {ck3: true, hwnd: 1, rect: {x: 0, y: 0, w: 1920, h: 1080}, minimise: false, premierPlan: true, ecran: {w: 1920, h: 1080}}; },
   async capturer() {
@@ -486,6 +492,133 @@ if (ETAPES.includes('regard')) {
       `${choix.images.map(i => i.t).join(', ')} ; principale ${choix.images[choix.principale].t}`);
   } finally { globalThis.fetch = vraiFetch; await rm(racine, {recursive: true, force: true}).catch(() => {}); }
   console.log(`Regard : ${resultats.filter(Boolean).length}/${resultats.length} vérifications réussies`);
+  if (resultats.some(x => !x)) process.exitCode = 1;
+}
+
+if (ETAPES.includes('google')) {
+  // Erreurs Google classées et retentées (10/10/2026, test ECC : tout 429 passait pour « crédit épuisé », une clé refusée pour
+  // « Google ne répond pas », aucune nouvelle tentative). Faux Google (scénario par cas) et faux OpenAI : aucun appel payant.
+  console.log('\n=== Erreurs Google classées (faux Google, faux OpenAI : aucun appel payant) ===');
+  const racine = await racineTemporaire();
+  const resultats = [];
+  const verifier = (nom, ok, details = '') => { resultats.push(ok); console.log(`${ok ? 'OK   ' : 'ÉCHEC'} ${nom}${details ? ' : ' + details : ''}`); };
+  const lignes = [];
+  const journalEspion = {log() {}, warn: (...a) => lignes.push(a.join(' ')), error: (...a) => lignes.push(a.join(' '))};
+  const vraiFetch = globalThis.fetch;
+  let scenario = () => { throw new Error('scénario absent'); }, appels = [];
+  const sse = texte => new Response(`data: ${JSON.stringify({candidates: [{content: {parts: [{text: texte}]}, finishReason: 'STOP'}], usageMetadata: {promptTokenCount: 10, candidatesTokenCount: 3}})}\n\n`, {status: 200, headers: {'Content-Type': 'text/event-stream'}});
+  const refus = (code, status, message, details = []) => new Response(JSON.stringify({error: {code, status, message, details}}), {status: code, headers: {'Content-Type': 'application/json'}});
+  const sseOpenAI = `data: ${JSON.stringify({type: 'response.output_text.delta', delta: 'Réponse OpenAI.'})}\n\ndata: ${JSON.stringify({type: 'response.completed', response: {usage: {input_tokens: 10, output_tokens: 3}}})}\n\n`;
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    if (u.startsWith('https://api.openai.com/')) {
+      appels.push('openai');
+      if (u.endsWith('/audio/transcriptions')) return Response.json({text: 'Question de secours'});
+      if (u.endsWith('/responses')) return new Response(sseOpenAI, {status: 200, headers: {'Content-Type': 'text/event-stream'}});
+      if (u.endsWith('/audio/speech')) return new Response(Buffer.alloc(9600));   // 200 ms de PCM muet (voix de secours)
+      throw new Error(`appel OpenAI inattendu : ${u}`);
+    }
+    if (!u.startsWith('https://generativelanguage.googleapis.com/')) throw new Error(`appel inattendu pendant l'essai : ${u}`);
+    appels.push('google');
+    return scenario(appels.filter(a => a === 'google').length, u, options);
+  };
+  const cles = {GEMINI_API_KEY: 'cle-factice', OPENAI_API_KEY: 'cle-factice'};
+  const copilote = (env = cles, aide = fausseAide()) => creerCopiloteJeu({root: racine, env, aide, journal: journalEspion});
+  const question = async (c, options = {}) => { appels = []; lignes.length = 0; const ev = []; for await (const e of c.poser({texte: 'Comment je crée un duché ?', voix: false, ...options})) ev.push(e); return ev; };
+  const secoursDe = ev => ev.find(e => e.type === 'etape' && e.secours)?.texte || null;
+  const texteDe = ev => ev.filter(e => e.type === 'texte').map(e => e.delta).join('');
+  const nGoogle = () => appels.filter(a => a === 'google').length;
+  const RETRY = [{'@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0.3s'}];
+  const QUOTA_JOUR = [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{quotaMetric: 'generativelanguage.googleapis.com/generate_content_requests', quotaId: 'GenerateRequestsPerDayPerProjectPerModel'}]}];
+  try {
+    // 1. 429 par minute avec RetryInfo (0,3 s) : une nouvelle tentative, qui réussit ; pas de repli, délai noté au journal.
+    scenario = n => n === 1 ? refus(429, 'RESOURCE_EXHAUSTED', 'Resource has been exhausted (e.g. check quota).', RETRY) : sse('Réponse Google.');
+    let t0 = Date.now(), ev = await question(copilote()), ms = Date.now() - t0;
+    verifier('429 limite + RetryInfo → nouvelle tentative réussie, sans repli', ev.at(-1)?.type === 'fin' && !secoursDe(ev) && texteDe(ev) === 'Réponse Google.' && nGoogle() === 2 && ms >= 300
+      && lignes.some(l => /Gemini 429 .*nouvelle tentative dans 300 ms/.test(l)), `${nGoogle()} appels Google en ${ms} ms ; journal : ${lignes.join(' | ').slice(0, 160)}`);
+
+    // 2. 429 du quota journalier (quotaId « PerDay ») : pas de nouvelle tentative, repli annoncé comme quota du jour, puis Google
+    //    évité à la question suivante (même annonce).
+    scenario = () => refus(429, 'RESOURCE_EXHAUSTED', 'You exceeded your current quota, please check your plan and billing details.', QUOTA_JOUR);
+    let c = copilote();
+    ev = await question(c);
+    const n1 = nGoogle(), s1 = secoursDe(ev);
+    const ev2 = await question(c);
+    verifier('429 per day → quota du jour, sans nouvelle tentative ; Google évité ensuite', s1 === 'Quota Google du jour atteint : je passe par OpenAI.' && n1 === 1 && texteDe(ev) === 'Réponse OpenAI.'
+      && ev.at(-1)?.type === 'fin' && nGoogle() === 0 && secoursDe(ev2) === s1, `« ${s1} », ${n1} appel Google puis ${nGoogle()}`);
+    // (La phrase « billing » du message ne compte pas pour un crédit : elle accompagne tout quota de Google.)
+
+    // 3. 404 : modèle inconnu, avec son nom et « mets à jour le copilote » ; en anglais aussi.
+    scenario = () => refus(404, 'NOT_FOUND', 'models/gemini-3.8-flash is not found for API version v1beta, or is not supported for generateContent.');
+    ev = await question(copilote());
+    const evEn = await question(copilote(), {langue: 'en'});
+    verifier('404 → modèle inconnu, nom du modèle et « mets à jour le copilote » (fr et en)', secoursDe(ev) === 'Google ne connaît plus le modèle gemini-3.8-flash : mets à jour le copilote. Je passe par OpenAI.'
+      && secoursDe(evEn) === 'Google no longer knows the model gemini-3.8-flash: update the copilot. Switching to OpenAI.' && nGoogle() === 1 && ev.at(-1)?.type === 'fin', `« ${secoursDe(ev)} »`);
+
+    // 4. 400 API_KEY_INVALID (question écrite) : clé refusée, dite telle quelle.
+    scenario = () => refus(400, 'INVALID_ARGUMENT', 'API key not valid. Please pass a valid API key.', [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'API_KEY_INVALID'}]);
+    ev = await question(copilote());
+    verifier('400 API key → clé refusée (question écrite)', secoursDe(ev) === 'Clé Google refusée : vérifie la clé dans .env. Je passe par OpenAI.' && nGoogle() === 1 && ev.at(-1)?.type === 'fin', `« ${secoursDe(ev)} »`);
+
+    // 5. 403 PERMISSION_DENIED pendant l'écoute vocale (les deux écoutes Google refusées) : vraie cause dite, statut HTTP au
+    //    journal, jamais « Google ne répond pas » ; la question est transcrite par OpenAI et la réponse vient d'OpenAI.
+    scenario = () => refus(403, 'PERMISSION_DENIED', 'Your API key doesn\'t have the required scope. API key is restricted.');
+    const souffle = Buffer.alloc(48000);
+    for (let i = 0; i < souffle.length; i += 2) souffle.writeInt16LE(Math.round((Math.random() * 2 - 1) * 570), i);
+    ev = await question(copilote(), {texte: undefined, audio: wav16(souffle).toString('base64')});
+    const journalEcoute = lignes.find(l => /écoute Google impossible/.test(l)) || '';
+    verifier('403 pendant l\'écoute vocale → « Clé Google refusée », statut HTTP au journal', secoursDe(ev) === 'Clé Google refusée : vérifie la clé dans .env. Je passe par OpenAI.'
+      && /Gemini 403 : PERMISSION_DENIED/.test(journalEcoute) && !ev.some(e => /ne répond pas/.test(e.texte || e.message || '')) && ev.find(e => e.type === 'question')?.texte === 'Question de secours'
+      && ev.at(-1)?.type === 'fin', `« ${secoursDe(ev)} » ; journal : « ${journalEcoute.slice(0, 120)} »`);
+
+    // 6. 503 (surcharge) sans RetryInfo : nouvelle tentative après 2 s, réussie.
+    scenario = n => n === 1 ? refus(503, 'UNAVAILABLE', 'The model is overloaded. Please try again later.') : sse('Réponse Google.');
+    t0 = Date.now(); ev = await question(copilote()); ms = Date.now() - t0;
+    verifier('503 → nouvelle tentative après 2 s, réussie', ev.at(-1)?.type === 'fin' && !secoursDe(ev) && texteDe(ev) === 'Réponse Google.' && nGoogle() === 2 && ms >= 2000 && ms < 6000, `${nGoogle()} appels en ${ms} ms`);
+
+    // 7. Facturation (crédit prépayé épuisé) : repli « crédit », Google évité ensuite ; et sans clé OpenAI, l'erreur dédiée.
+    scenario = () => refus(403, 'PERMISSION_DENIED', 'This API method requires billing to be enabled: prepaid credit exhausted.');
+    c = copilote(); ev = await question(c); const ev7 = await question(c), n7 = nGoogle();
+    const sansOpenAI = await question(copilote({GEMINI_API_KEY: 'cle-factice'}));
+    scenario = () => refus(400, 'INVALID_ARGUMENT', 'API key not valid. Please pass a valid API key.');
+    const sansOpenAI2 = await question(copilote({GEMINI_API_KEY: 'cle-factice'}));
+    verifier('crédit → « Crédit Google épuisé », Google évité ensuite ; sans clé OpenAI, message dédié par cas', secoursDe(ev) === 'Crédit Google épuisé : je passe par OpenAI.' && secoursDe(ev7) === secoursDe(ev) && n7 === 0
+      && sansOpenAI.at(-1)?.type === 'erreur' && sansOpenAI.at(-1).message === 'Crédit Google épuisé, et pas de clé OpenAI pour prendre le relais.'
+      && sansOpenAI2.at(-1)?.message === 'Clé Google refusée : vérifie la clé dans .env (et pas de clé OpenAI pour prendre le relais).', `« ${sansOpenAI.at(-1)?.message} » / « ${sansOpenAI2.at(-1)?.message} »`);
+
+    // 8. Encyclopédie introuvable (COPILOTE_CK3_DIR faux) : dite UNE fois dans le panneau (événement avertissement), le copilote
+    //    répond quand même ; la question suivante ne la répète pas.
+    scenario = () => sse('Réponse Google.');
+    lignes.length = 0;
+    c = copilote({...cles, COPILOTE_CK3_DIR: 'C:\\nulle-part-copilote'});
+    await c.etat();   // le savoir est chargé (et son échec noté au journal) dès la création
+    const noteSavoir = lignes.find(l => /savoir du jeu indisponible/.test(l)) || '';
+    ev = await question(c); const ev8 = await question(c);
+    const avert = ev.find(e => e.type === 'avertissement')?.message || '';
+    verifier('Encyclopédie introuvable → avertissement une fois, réponse quand même, journal explicite', avert === 'Encyclopédie introuvable : COPILOTE_CK3_DIR=C:\\nulle-part-copilote n\'est pas le dossier de Crusader Kings III (launcher\\launcher-settings.json absent). Je réponds sans elle.'
+      && ev.at(-1)?.type === 'fin' && !ev8.some(e => e.type === 'avertissement') && /COPILOTE_CK3_DIR=C:\\nulle-part-copilote/.test(noteSavoir), `« ${avert.slice(0, 150)} » ; journal : « ${noteSavoir.slice(0, 100)} »`);
+
+    // 9. État : aide Windows en panne distinguée de « CK3 pas lancé ».
+    const etatPanne = await copilote(cles, {async etat() { throw new Error('Aide Windows indisponible'); }, async capturer() { throw new Error('Aide Windows indisponible'); }}).etat();
+    const etatOk = await copilote().etat();
+    verifier('état : aide Windows en panne signalée à part', etatPanne.aide?.ok === false && etatPanne.aide.erreur === 'Aide Windows indisponible' && etatPanne.ck3 === false && etatOk.aide?.ok === true && etatOk.ck3 === true, JSON.stringify(etatPanne.aide));
+
+    // 10. Voix : 429 « limite » dont le délai Google (20 s) dépasse la garde du premier son (8 s). L'attente est bornée à 4 s (au
+    //     journal) et, la garde tombant pendant l'attente (le 429 arrive après 5 s : 5 + 4 > 8), c'est la cause classée qui est dite,
+    //     « Google limite le rythme », jamais « Google ne répond pas » ; la réponse vient de Google, la voix d'OpenAI, un seul appel
+    //     de voix à Google.
+    scenario = async (n, u) => {
+      if (!/tts/.test(u)) return sse('Réponse Google.');
+      await new Promise(r => setTimeout(r, 5000));
+      return refus(429, 'RESOURCE_EXHAUSTED', 'Resource has been exhausted (e.g. check quota).', [{'@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '20s'}]);
+    };
+    t0 = Date.now(); ev = await question(copilote(), {voix: true}); ms = Date.now() - t0;
+    verifier('voix : 429 limite + RetryInfo 20 s, garde du premier son pendant l\'attente → « Google limite le rythme », voix OpenAI', secoursDe(ev) === 'Google limite le rythme (trop de demandes) : je passe par OpenAI.'
+      && texteDe(ev) === 'Réponse Google.' && nGoogle() === 2 && appels.includes('openai') && ev.some(e => e.type === 'audio') && !ev.some(e => /ne répond pas/.test(e.texte || e.message || ''))
+      && ev.at(-1)?.type === 'fin' && lignes.some(l => /Gemini 429 .*nouvelle tentative dans 4000 ms/.test(l)) && ms >= 7900 && ms < 12000,
+      `« ${secoursDe(ev)} », ${nGoogle()} appels Google en ${ms} ms ; journal : ${lignes.filter(l => /429/.test(l)).join(' | ').slice(0, 160)}`);
+  } finally { globalThis.fetch = vraiFetch; await rm(racine, {recursive: true, force: true}).catch(() => {}); }
+  console.log(`Google : ${resultats.filter(Boolean).length}/${resultats.length} vérifications réussies`);
   if (resultats.some(x => !x)) process.exitCode = 1;
 }
 

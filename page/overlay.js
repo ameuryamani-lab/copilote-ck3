@@ -366,6 +366,9 @@
       case 'erreur':
         changerEtat('reponse'); corps.classList.add('fini');
         el.erreur.textContent = ev.message || T.erreurInconnue; statut(T.probleme); break;
+      // Avertissement du serveur (Encyclopédie introuvable, 10/10/2026) : affiché dans le cadre d'alerte du panneau, la réponse
+      // continue ; effacé à la question suivante (viderPanneau).
+      case 'avertissement': if (ev.message) el.erreur.textContent = String(ev.message); break;
     }
   }
 
@@ -549,7 +552,7 @@
     const j = infoEtat;
     pretRepos = DEMO === '1' || !j || (!j.injoignable && !j.erreur && !!(j.cle?.gemini || j.cle?.openai) && !!j.ck3);
     baseRepos = DEMO === '1' ? T.pretDemo : !j ? T.pret : j.injoignable ? T.injoignable : j.erreur ? T.cerveauIndisponible
-      : !j.cle?.gemini && !j.cle?.openai ? T.aucuneCle : !j.ck3 ? T.ck3Absent : T.pretVersion(j.version);
+      : !j.cle?.gemini && !j.cle?.openai ? T.aucuneCle : j.aide?.ok === false ? T.aideEnPanne : !j.ck3 ? T.ck3Absent : T.pretVersion(j.version);
     majRepos();
   }
 
